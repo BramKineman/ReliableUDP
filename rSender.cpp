@@ -106,25 +106,46 @@ bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
   return true;
 }
 
-// void serialize(PacketHeader* header, char *data)
-// {
-//     int *q = (int*)data;    
-//     *q = header->type;       q++;    
-//     *q = header->seqNum;   q++;    
-//     *q = header->length;     q++;
-//     *q = header->checkSum;     q++;
+void serialize(packet* packet, char *data)
+{
+    int *q = (int*)data;    
+    *q = packet->type;       q++;    
+    *q = packet->seqNum;   q++;    
+    *q = packet->length;     q++;
+    *q = packet->checksum;     q++;
 
-//     char *p = (char*)q;
-//     int i = 0;
-//     while (i < 16)
-//     {
-//         *p = header->message[i];
-//         p++;
-//         i++;
-//     }
-// }
+    char *p = (char*)q;
+    int i = 0;
+    while (i < PACKETBUFFERSIZE)
+    {
+        *p = packet->data[i];
+        p++;
+        i++;
+    }
+}
+
+void deserialize(char *data, packet* packet)
+{
+    int *q = (int*)data;    
+    packet->type = *q;       q++;    
+    packet->seqNum = *q;   q++;    
+    packet->length = *q;     q++;
+    packet->checksum = *q;     q++;
+
+    char *p = (char*)q;
+    int i = 0;
+    while (i < PACKETBUFFERSIZE)
+    {
+        packet->data[i] = *p;
+        p++;
+        i++;
+    }
+}
 
 void sendData(socketInfo &socket, char* filePath) {
+
+  // create packet
+  packet* dataPacket = new packet;
 
   // GET DATA FROM FILE TO SEND
   FILE* file = fopen(filePath, "r");
@@ -133,34 +154,30 @@ void sendData(socketInfo &socket, char* filePath) {
   long fileSize = ftell(file);
   rewind(file);
   //read file into buffer
-  char data[DATABUFFERSIZE]; // don't know the type of file .. can't be auto
-  int bytesRead = fread(data, 1, fileSize, file);
+  int bytesRead = fread(dataPacket->data, 1, fileSize, file);
 
   // GET CHECKSUM
-  uint32_t checkSum = crc32(data, bytesRead);
-  cout << "CHECKSUM: " << checkSum << endl;
+  uint32_t checkSum = crc32(dataPacket->data, bytesRead);
 
   // CREATE PACKET HEADER
-  // PacketHeader header;
-  // header.type = 2;
-  // header.seqNum = 0; // initial 
-  // header.length = bytesRead;
-  // header.checksum = checkSum;
-  // using dummy array for now
-  char header[3];
-  header[0] = '2';
-  header[1] = '0';
-  header[2] = '0';
-
-  // add header to data
+  dataPacket->type = 2;
+  dataPacket->seqNum = 0; // initial
+  dataPacket->length = bytesRead;
+  dataPacket->checksum = checkSum;
+ 
+  // serialize packet
   char packet[PACKETBUFFERSIZE];
-  memcpy(packet, header, sizeof(header));
-  memcpy(packet + sizeof(header), data, bytesRead);
-  // char* packet = new char[PACKETBUFFERSIZE];
-  // memcpy(packet, &header, sizeof(header));
-  // memcpy(packet + sizeof(header), data, bytesRead);
+  serialize(dataPacket, packet);
 
-  cout << "Packet: " << packet[5] << endl;
+  // deserialize packet
+  packet* dataPacket2;
+  deserialize(packet, dataPacket2);
+  cout << "DESERIALIZED PACKET: " << dataPacket2->type << endl;
+
+  // test to see if serialization works
+  // packet* temp = new packet;
+  // deserialize(packet, temp);
+  // cout << "DESERIALIZED: " << temp->type << endl;
 
   if (sendto(socket.sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
   {
