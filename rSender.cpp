@@ -124,6 +124,7 @@ void serialize(packet* packet, char *data)
     }
 }
 
+// TODO remove from this file
 void deserialize(char *data, packet* packet)
 {
     int *q = (int*)data;    
@@ -169,22 +170,11 @@ void sendData(socketInfo &socket, char* filePath) {
   char packet[PACKETBUFFERSIZE];
   serialize(dataPacket, packet);
 
-  // deserialize packet
-  packet* dataPacket2;
-  deserialize(packet, dataPacket2);
-  cout << "DESERIALIZED PACKET: " << dataPacket2->type << endl;
-
-  // test to see if serialization works
-  // packet* temp = new packet;
-  // deserialize(packet, temp);
-  // cout << "DESERIALIZED: " << temp->type << endl;
-
   if (sendto(socket.sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
   {
     printf("Error sending data\n");
     exit(1);
   }
-
 
   cout << "SENT DATA" << endl;
 }

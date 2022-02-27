@@ -42,6 +42,10 @@ struct clientSocketInfo {
   socklen_t client_len;
 };
 
+struct packet : public PacketHeader {
+  char data[BUFFERSIZE];
+};
+
 auto retrieveArgs(char* argv[])  {
   args newArgs;
   newArgs.portNum = argv[1];
@@ -106,9 +110,27 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
   return true;
 }
 
+void deserialize(char *data, packet* packet)
+{
+    int *q = (int*)data;    
+    packet->type = *q;       q++;    
+    packet->seqNum = *q;   q++;    
+    packet->length = *q;     q++;
+    packet->checksum = *q;     q++;
+
+    char *p = (char*)q;
+    int i = 0;
+    while (i < BUFFERSIZE)
+    {
+        packet->data[i] = *p;
+        p++;
+        i++;
+    }
+}
+
 // receive data from client
 void receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath) {
-  char buf[1472]; // TODO 
+  char buf[BUFFERSIZE]; // TODO 
   int recv_len;
 
   // receive data from client
@@ -118,16 +140,20 @@ void receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
       exit(1);
   }
 
+  // deserialize data
+  packet* receivedPacket = new packet;
+  deserialize(buf, receivedPacket);
+  cout << "Received packet with Type: " << receivedPacket->type << endl;
+
   // while recieved data doesn't have packet header of type 1 (END)
 
-
   // print data received
-  printf("Received data: %s\n", buf);
+  printf("Received data: %s\n", receivedPacket->data);
 
   // write data to file
   FILE *file = fopen(filePath, "w");
   // (elements to be written, size of each element, number of elements, file pointer)
-  fwrite(buf, sizeof(char), recv_len, file);
+  fwrite(receivedPacket->data, sizeof(char), recv_len, file);
   fclose(file);
 }
 
