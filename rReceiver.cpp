@@ -133,6 +133,8 @@ void receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   char buf[BUFFERSIZE]; // TODO 
   int recv_len;
 
+
+  // while recieved data doesn't have packet header of type 1 (END)
   // receive data from client
   if ((recv_len = recvfrom(serverSocket.sockfd, buf, sizeof(buf), 0, (struct sockaddr*)&clientSocket.client_addr, &clientSocket.client_len)) == -1)
   {
@@ -145,7 +147,11 @@ void receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   deserialize(buf, receivedPacket);
   cout << "Received packet with Type: " << receivedPacket->type << endl;
 
-  // while recieved data doesn't have packet header of type 1 (END)
+  // check seqNum of received packet
+  // if seqNum is not expected seqNum, ACK with expected seqNum
+  // if correct seqNum, check highest seqNum from in-order received packets, and send ACK with seqNum + 1
+  // calculate checkSum 
+  // if correct checkSum, send ACK
 
   // print data received
   printf("Received data: %s\n", receivedPacket->data);

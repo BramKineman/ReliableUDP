@@ -11,6 +11,7 @@
 #include <iostream>
 #include <cstring>
 #include <time.h>
+#include <deque>
 
 #include "PacketHeader.h"
 #include "crc32.h"
@@ -43,6 +44,12 @@ struct socketInfo {
 
 struct packet : public PacketHeader {
   char data[DATABUFFERSIZE];
+};
+
+struct packetTracker {
+  deque<packet> unACKedPackets;
+  deque<packet> ACKedPackets;
+  deque<packet> packetsInWindow;
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -106,6 +113,16 @@ bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
   return true;
 }
 
+bool receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
+  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
+  {
+    printf("Error receiving ACK for DATA\n");
+    exit(1);
+  }
+  printf("Received ACK for DATA packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+  return true;
+}
+
 void serialize(packet* packet, char *data)
 {
     int *q = (int*)data;    
@@ -124,59 +141,55 @@ void serialize(packet* packet, char *data)
     }
 }
 
-// TODO remove from this file
-void deserialize(char *data, packet* packet)
-{
-    int *q = (int*)data;    
-    packet->type = *q;       q++;    
-    packet->seqNum = *q;   q++;    
-    packet->length = *q;     q++;
-    packet->checksum = *q;     q++;
-
-    char *p = (char*)q;
-    int i = 0;
-    while (i < PACKETBUFFERSIZE)
-    {
-        packet->data[i] = *p;
-        p++;
-        i++;
-    }
-}
-
-void sendData(socketInfo &socket, char* filePath) {
+void sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // create packet
   packet* dataPacket = new packet;
+  // create packet tracker
+  packetTracker* tracker = new packetTracker;
 
   // GET DATA FROM FILE TO SEND
   FILE* file = fopen(filePath, "r");
-  //obtain file size
-  fseek(file, 0, SEEK_END);
-  long fileSize = ftell(file);
-  rewind(file);
   //read file into buffer
-  int bytesRead = fread(dataPacket->data, 1, fileSize, file);
+  int bytesRead;
+  // fread(void * buffer, size_t size of each element, size_t num elements to read, FILE* fp)
+  // TODO: read up to a point, then next read starts from that point AND second param won't always be 1
+  while(!feof(file)) {
+    bytesRead = fread(dataPacket->data, 1, DATABUFFERSIZE, file);
+    // GET CHECKSUM
+    uint32_t checkSum = crc32(dataPacket->data, bytesRead);
+    // CREATE PACKET HEADER
+    dataPacket->type = 2;
+    dataPacket->seqNum = 0; // initial
+    dataPacket->length = bytesRead;
+    dataPacket->checksum = checkSum;
+    // serialize packet
+    char packet[PACKETBUFFERSIZE];
+    serialize(dataPacket, packet);
 
-  // GET CHECKSUM
-  uint32_t checkSum = crc32(dataPacket->data, bytesRead);
+    // start timer when sending packet
+    // timer timeout;
+    // timeout.start = chrono::system_clock::now();
+    
+    // add packet to unacked tracker
+    tracker->unACKedPackets.push_back(*dataPacket);
 
-  // CREATE PACKET HEADER
-  dataPacket->type = 2;
-  dataPacket->seqNum = 0; // initial
-  dataPacket->length = bytesRead;
-  dataPacket->checksum = checkSum;
- 
-  // serialize packet
-  char packet[PACKETBUFFERSIZE];
-  serialize(dataPacket, packet);
+    // send packet
+    if (sendto(socket.sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+    {
+      printf("Error sending data\n");
+      exit(1);
+    }
+    cout << "SENT DATA" << endl;
+  } 
 
-  if (sendto(socket.sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-  {
-    printf("Error sending data\n");
-    exit(1);
-  }
+  // close file
+  cout << "Closing file..." << endl;
+  fclose(file);
 
-  cout << "SENT DATA" << endl;
+  // close connection
+  cout << "Closing connection..." << endl;
+  close(socket.sockfd);
 }
 
 int main(int argc, char* argv[]) 
@@ -202,7 +215,7 @@ int main(int argc, char* argv[])
     getSTARTACK(socket, ACKPacket);
   }
 
-  sendData(socket, senderArgs.inputFile);
+  sendData(socket, senderArgs.inputFile, senderArgs.windowSize);
 
   // read input file, reading X amount of bytes (1472 for header and data)
 	
@@ -214,5 +227,7 @@ int main(int argc, char* argv[])
   // window is the number of unACKED packets the sender can have in the network
 
   // recieve cumalitive ACKs from receiver 
+
+  cout << "Ending program..." << endl;
   return 0;
 }
