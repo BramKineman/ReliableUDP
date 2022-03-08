@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <chrono>
 #include <ctime>
@@ -21,8 +22,7 @@
 
 using namespace std; 
 	
-// Timeout timer
-// 500 ms timeout 
+// Timeout timer - 500 ms timeout 
 struct timer {
   chrono::time_point<chrono::system_clock> start, end;
   chrono::duration<double> elapsed;
@@ -72,6 +72,16 @@ PacketHeader createSTARTPacket(){
   return startHeader;
 }
 
+PacketHeader createENDPacket(unsigned int seqNum){
+  PacketHeader endHeader;
+  endHeader.type = 1;
+  endHeader.seqNum = seqNum; // Same as START seqNum
+  endHeader.length = 0; // 0 for ACKS, START, END
+  endHeader.checksum = 0; // 0 for ACKS, START, END
+  return endHeader;
+}
+
+
 PacketHeader createHeader() {
   PacketHeader header;
   return header;
@@ -99,17 +109,63 @@ bool sendSTART(socketInfo &socket, PacketHeader &startHeader) {
     printf("Error sending start\n");
     exit(1);
   }
-  cout << "SENT START" << endl;
+  cout << "Sent START..." << endl;
+  return true;
+}
+
+bool sendEND(socketInfo &socket, PacketHeader &endHeader) {
+  if (sendto(socket.sockfd, (char*)&endHeader, sizeof(endHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+  {
+    printf("Error sending end\n");
+    exit(1);
+  }
+  cout << "Sent END..." << endl;
   return true;
 }
 
 bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
-  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
-  {
-    printf("Error receiving ACK for START\n");
-    exit(1);
+  timer timeout;
+  timeout.start = chrono::system_clock::now();
+
+  bool recvLoop = true;
+  int recv_len;
+  while (recvLoop) {
+    recv_len = recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
+    timeout.end = chrono::system_clock::now();
+    timeout.elapsed = timeout.end - timeout.start;
+    if (timeout.elapsed.count() > 0.5) {
+      cout << "TIMEOUT" << endl;
+      return false;
+    }
+    if (ACKPacket.type == 3) {
+      printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+      recvLoop = false;
+    }
   }
-  printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+  
+  return true;
+}
+
+bool getENDACK(socketInfo &socket, PacketHeader ACKPacket) {
+  timer timeout;
+  timeout.start = chrono::system_clock::now();
+
+  bool recvLoop = true;
+  int recv_len;
+  while (recvLoop) {
+    recv_len = recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
+    timeout.end = chrono::system_clock::now();
+    timeout.elapsed = timeout.end - timeout.start;
+    if (timeout.elapsed.count() > 0.5) {
+      cout << "TIMEOUT" << endl;
+      return false;
+    }
+    if (ACKPacket.type == 3) {
+      printf("Received ACK for END packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+      recvLoop = false;
+    }
+  }
+  
   return true;
 }
 
@@ -141,7 +197,7 @@ void serialize(packet* packet, char *data)
     }
 }
 
-void sendData(socketInfo &socket, char* filePath, char* windowSize) {
+bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // create packet
   packet* dataPacket = new packet;
@@ -180,16 +236,16 @@ void sendData(socketInfo &socket, char* filePath, char* windowSize) {
       printf("Error sending data\n");
       exit(1);
     }
-    cout << "SENT DATA" << endl;
+
+    cout << "Sent DATA... " << endl;
   } 
 
   // close file
   cout << "Closing file..." << endl;
   fclose(file);
+  cout << "Closing file..." << endl;
 
-  // close connection
-  cout << "Closing connection..." << endl;
-  close(socket.sockfd);
+  return true;
 }
 
 int main(int argc, char* argv[]) 
@@ -208,14 +264,32 @@ int main(int argc, char* argv[])
 
   // setup socket
   socketInfo socket = setupSocket(senderArgs.receiverPort, senderArgs.receiverIP);
+  // make socket non blocking
+  fcntl(socket.sockfd, F_SETFL, O_NONBLOCK);
   // send START, receive ACK
-  PacketHeader STARTPacket = createSTARTPacket();
+  PacketHeader STARTPacket = createSTARTPacket(); 
   if (sendSTART(socket, STARTPacket)) {
     PacketHeader ACKPacket;
-    getSTARTACK(socket, ACKPacket);
+    while(!getSTARTACK(socket, ACKPacket)) {
+      cout << "Retrying..." << endl;
+      sendSTART(socket, STARTPacket);
+    }
   }
 
-  sendData(socket, senderArgs.inputFile, senderArgs.windowSize);
+  if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize)) {
+    cout << "Am I here?" << endl;
+    // send END, receive ACK
+    PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
+    if (sendEND(socket, ENDPacket)) {
+      PacketHeader ACKPacket;
+      while(!getENDACK(socket, ACKPacket)) {
+        cout << "Retrying..." << endl;
+        sendEND(socket, ENDPacket);
+      }
+    }
+  }
+
+ 
 
   // read input file, reading X amount of bytes (1472 for header and data)
 	

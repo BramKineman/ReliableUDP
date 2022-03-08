@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <fcntl.h>
 #include <chrono>
 #include <ctime>
 #include <iostream>
@@ -11,7 +12,7 @@
 #include <string>
 #include "PacketHeader.h"
 
-#define BUFFERSIZE 1472
+#define PACKETBUFFERSIZE 1472
 
 using namespace std; 
 	
@@ -43,7 +44,7 @@ struct clientSocketInfo {
 };
 
 struct packet : public PacketHeader {
-  char data[BUFFERSIZE];
+  char data[PACKETBUFFERSIZE];
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -90,11 +91,14 @@ clientSocketInfo setupClientSocket() {
 
 PacketHeader waitForSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket) {
   int recv_len;
+  bool recvLoop = true;
   cout << "Waiting for START..." << endl;
-  if ((recv_len = recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr*)&clientSocket.client_addr, &clientSocket.client_len)) == -1)
-  {
-      printf("Error receving START\n");
-      exit(1);
+
+  while (recvLoop) {
+    recv_len = recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+    if (STARTPacket.type == 0) {
+      recvLoop = false;
+    }
   }
   printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum);
   return STARTPacket;
@@ -120,7 +124,7 @@ void deserialize(char *data, packet* packet)
 
     char *p = (char*)q;
     int i = 0;
-    while (i < BUFFERSIZE)
+    while (i < PACKETBUFFERSIZE)
     {
         packet->data[i] = *p;
         p++;
@@ -129,38 +133,43 @@ void deserialize(char *data, packet* packet)
 }
 
 // receive data from client
-void receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath) {
-  char buf[BUFFERSIZE]; // TODO 
+bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath) {
+  char buf[PACKETBUFFERSIZE]; // TODO 
   int recv_len;
-
-
-  // while recieved data doesn't have packet header of type 1 (END)
-  // receive data from client
-  if ((recv_len = recvfrom(serverSocket.sockfd, buf, sizeof(buf), 0, (struct sockaddr*)&clientSocket.client_addr, &clientSocket.client_len)) == -1)
-  {
-      printf("Error receving data\n");
-      exit(1);
-  }
-
-  // deserialize data
+  bool recvLoop = true;
   packet* receivedPacket = new packet;
-  deserialize(buf, receivedPacket);
-  cout << "Received packet with Type: " << receivedPacket->type << endl;
+
+
+  while (recvLoop) {
+    recv_len = recvfrom(serverSocket.sockfd, buf, sizeof(buf), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+    if (recv_len == -1) {
+      // perror("ERROR on recvfrom");
+      // exit(1);
+
+    }
+    // deserialize data
+    deserialize(buf, receivedPacket);
+    if (receivedPacket->type == 1) {   // while recieved data doesn't have packet header of type 1 (END)
+      cout << "Got END packet" << endl;
+      recvLoop = false;
+    }
+    else if (receivedPacket->type == 2) {
+      cout << "Received packet with Type: " << receivedPacket->type << endl;
+      // print data received
+      printf("Received data: %s\n", receivedPacket->data);
+      FILE *fp = fopen(filePath, "w");
+      // (elements to be written, size of each element, number of elements, file pointer)
+      fwrite(receivedPacket->data, sizeof(char), recv_len, fp);
+      fclose(fp);
+    }
+  }
 
   // check seqNum of received packet
   // if seqNum is not expected seqNum, ACK with expected seqNum
   // if correct seqNum, check highest seqNum from in-order received packets, and send ACK with seqNum + 1
   // calculate checkSum 
   // if correct checkSum, send ACK
-
-  // print data received
-  printf("Received data: %s\n", receivedPacket->data);
-
-  // write data to file
-  FILE *file = fopen(filePath, "w");
-  // (elements to be written, size of each element, number of elements, file pointer)
-  fwrite(receivedPacket->data, sizeof(char), recv_len, file);
-  fclose(file);
+  return true;
 }
 
 int main(int argc, char* argv[]) 
@@ -181,7 +190,10 @@ int main(int argc, char* argv[])
   // create client socket to recv from
   clientSocketInfo clientSocket = setupClientSocket();
   
-  // wait for START packet
+
+  // make socket non blocking
+  fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
+  // Empty START packet to receive in to
   PacketHeader STARTPacket;
   STARTPacket = waitForSTART(serverSocket, clientSocket, STARTPacket);
   // send ACK for START
@@ -190,7 +202,12 @@ int main(int argc, char* argv[])
     sendACK(serverSocket, clientSocket, ACKPacket);
   }
 
-  receiveData(serverSocket, clientSocket, receiverArgs.outputDir);
+  if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir)) {
+    // send ACK for END
+    // ACK for END
+    PacketHeader ACKPacket = createACKPacket(STARTPacket.seqNum);
+    sendACK(serverSocket, clientSocket, ACKPacket); 
+  }
 
   // receive packet, calculate checksum
   // if checksum value != checksum value in header, don't send ACK
