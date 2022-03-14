@@ -13,6 +13,7 @@
 #include <cstring>
 #include <time.h>
 #include <deque>
+#include <fstream>
 
 #include "PacketHeader.h"
 #include "crc32.h"
@@ -205,13 +206,20 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
   packetTracker* tracker = new packetTracker;
 
   // GET DATA FROM FILE TO SEND
-  FILE* file = fopen(filePath, "r");
+  // FILE* file = fopen(filePath, "r");
+  ifstream file(filePath, ios::binary);
+
   //read file into buffer
   int bytesRead;
   // fread(void * buffer, size_t size of each element, size_t num elements to read, FILE* fp)
-  // TODO: read up to a point, then next read starts from that point AND second param won't always be 1
-  while(!feof(file)) {
-    bytesRead = fread(dataPacket->data, 1, DATABUFFERSIZE, file);
+  // TODO: read up to a point, then next read starts from that point AND second param won't always be 1 - type agnostic??
+  while(!file.eof()) {
+    // bytesRead = fread(dataPacket->data, 1, DATABUFFERSIZE, file);
+
+    // read up to a point, then next read starts from that point
+
+
+    file.read(dataPacket->data, DATABUFFERSIZE);
     // GET CHECKSUM
     uint32_t checkSum = crc32(dataPacket->data, bytesRead);
     // CREATE PACKET HEADER
@@ -221,7 +229,8 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     dataPacket->checksum = checkSum;
     // serialize packet
     char packet[PACKETBUFFERSIZE];
-    serialize(dataPacket, packet);
+    cout << "DATA: " << dataPacket->data << endl;
+    // serialize(dataPacket, packet); TODO: Serialization (with a bunch of null chars?) breaks the program
 
     // start timer when sending packet
     // timer timeout;
@@ -231,7 +240,7 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     tracker->unACKedPackets.push_back(*dataPacket);
 
     // send packet
-    if (sendto(socket.sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+    if (sendto(socket.sockfd, dataPacket, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
     {
       printf("Error sending data\n");
       exit(1);
@@ -242,9 +251,8 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // close file
   cout << "Closing file..." << endl;
-  fclose(file);
-  cout << "Closing file..." << endl;
-
+  //fclose(file);
+  file.close();
   return true;
 }
 
@@ -277,7 +285,6 @@ int main(int argc, char* argv[])
   }
 
   if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize)) {
-    cout << "Am I here?" << endl;
     // send END, receive ACK
     PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
     if (sendEND(socket, ENDPacket)) {
