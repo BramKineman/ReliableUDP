@@ -134,32 +134,28 @@ void deserialize(char *data, packet* packet)
 
 // receive data from client
 bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath) {
-  char buf[PACKETBUFFERSIZE]; // TODO 
+  // packet to receive data in to
+  packet receivedPacket;
+  // bytes received
   int recv_len;
   bool recvLoop = true;
-  packet* receivedPacket = new packet;
-
 
   while (recvLoop) {
-    recv_len = recvfrom(serverSocket.sockfd, buf, sizeof(buf), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
-    if (recv_len == -1) {
-      // perror("ERROR on recvfrom");
-      // exit(1);
+    recv_len = recvfrom(serverSocket.sockfd, (char*)&receivedPacket, sizeof(receivedPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
 
-    }
     // deserialize data
-    deserialize(buf, receivedPacket);
-    if (receivedPacket->type == 1) {   // while recieved data doesn't have packet header of type 1 (END)
+    // deserialize(buf, receivedPacket);
+    if (receivedPacket.type == 1) {   // while recieved data doesn't have packet header of type 1 (END)
       cout << "Got END packet" << endl;
       recvLoop = false;
     }
-    else if (receivedPacket->type == 2) {
-      cout << "Received packet with Type: " << receivedPacket->type << endl;
+    else if (receivedPacket.type == 2) {
+      cout << "Received packet with Type: " << receivedPacket.type << endl;
       // print data received
-      printf("Received data: %s\n", receivedPacket->data);
+      printf("Received data: %s\n", receivedPacket.data);
       FILE *fp = fopen(filePath, "w");
       // (elements to be written, size of each element, number of elements, file pointer)
-      fwrite(receivedPacket->data, sizeof(char), recv_len, fp);
+      fwrite(receivedPacket.data, sizeof(char), recv_len, fp);
       fclose(fp);
     }
   }

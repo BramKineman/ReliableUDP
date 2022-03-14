@@ -201,35 +201,31 @@ void serialize(packet* packet, char *data)
 bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // create packet
-  packet* dataPacket = new packet;
+  packet dataPacket;
   // create packet tracker
   packetTracker* tracker = new packetTracker;
 
-  // GET DATA FROM FILE TO SEND
-  // FILE* file = fopen(filePath, "r");
-  ifstream file(filePath, ios::binary);
+  // open file to read
+  ifstream file(filePath, ios::binary); // binary?
+  streamsize bytesRead;
 
-  //read file into buffer
-  int bytesRead;
-  // fread(void * buffer, size_t size of each element, size_t num elements to read, FILE* fp)
-  // TODO: read up to a point, then next read starts from that point AND second param won't always be 1 - type agnostic??
+  // TODO: test with files larger than 1MB
   while(!file.eof()) {
-    // bytesRead = fread(dataPacket->data, 1, DATABUFFERSIZE, file);
-
     // read up to a point, then next read starts from that point
+    file.read(dataPacket.data, DATABUFFERSIZE);
+    bytesRead = file.gcount();
 
+    // get checksum on data
+    uint32_t checkSum = crc32(dataPacket.data, bytesRead);
+    // create packet header
+    dataPacket.type = 2;
+    dataPacket.seqNum = 0; // initial
+    dataPacket.length = bytesRead;
+    dataPacket.checksum = checkSum;
+    cout << "Sending DATA packet..." << dataPacket.data << endl;
 
-    file.read(dataPacket->data, DATABUFFERSIZE);
-    // GET CHECKSUM
-    uint32_t checkSum = crc32(dataPacket->data, bytesRead);
-    // CREATE PACKET HEADER
-    dataPacket->type = 2;
-    dataPacket->seqNum = 0; // initial
-    dataPacket->length = bytesRead;
-    dataPacket->checksum = checkSum;
     // serialize packet
-    char packet[PACKETBUFFERSIZE];
-    cout << "DATA: " << dataPacket->data << endl;
+    // char packet[PACKETBUFFERSIZE];
     // serialize(dataPacket, packet); TODO: Serialization (with a bunch of null chars?) breaks the program
 
     // start timer when sending packet
@@ -237,10 +233,10 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     // timeout.start = chrono::system_clock::now();
     
     // add packet to unacked tracker
-    tracker->unACKedPackets.push_back(*dataPacket);
+    // tracker->unACKedPackets.push_back(*dataPacket);
 
     // send packet
-    if (sendto(socket.sockfd, dataPacket, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+    if (sendto(socket.sockfd, &dataPacket, sizeof(dataPacket), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
     {
       printf("Error sending data\n");
       exit(1);
@@ -251,7 +247,6 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // close file
   cout << "Closing file..." << endl;
-  //fclose(file);
   file.close();
   return true;
 }
