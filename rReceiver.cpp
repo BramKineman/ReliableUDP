@@ -85,30 +85,29 @@ serverSocketInfo setupServerSocket(char* portnum) {
 
 clientSocketInfo setupClientSocket() {
   clientSocketInfo newSocket;
-  socklen_t client_len = sizeof(newSocket.client_addr);
+  newSocket.client_len = sizeof(newSocket.client_addr);
   return newSocket;
 }
 
-PacketHeader waitForSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket) {
+bool waitForSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket) {
   int recv_len;
-  bool recvLoop = true;
   cout << "Waiting for START..." << endl;
 
-  while (recvLoop) {
+  while (true) {
     recv_len = recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
     if (STARTPacket.type == 0) {
-      recvLoop = false;
+      printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum); 
+      return true;
     }
   }
-  printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum);
-  return STARTPacket;
 }
 
 bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &ACKPacket) {
   if (sendto(serverSocket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr*)&clientSocket.client_addr, clientSocket.client_len) == -1)
   {
-      printf("Error sending ACK\n");
-      exit(1);
+      // get error message and print it
+      perror("Error sending ACK");
+      return false;
   }
   printf("Sent ACK packet with SeqNum: %d\n", ACKPacket.seqNum);
   return true;
@@ -160,11 +159,19 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
     }
   }
 
+
+  // send cumulative ACK for each packet received 
+  // cumulative ACK should contain seqNum it expects to receive next
+  // 2 main scenarios when getting data
+  // 1. if receiver is expecting seqNum N, but receives a different seqNum, it will reply with an ACK with seqNum = N
+  // 2. if it receives a packed with seqNum = N, it will check the highest seqNum from in-order packets it has received and reply with a seqNum one greater
+
   // check seqNum of received packet
   // if seqNum is not expected seqNum, ACK with expected seqNum
   // if correct seqNum, check highest seqNum from in-order received packets, and send ACK with seqNum + 1
   // calculate checkSum 
   // if correct checkSum, send ACK
+  // if checksum value != checksum value in header, don't send ACK
   return true;
 }
 
@@ -185,35 +192,23 @@ int main(int argc, char* argv[])
   serverSocketInfo serverSocket = setupServerSocket(receiverArgs.portNum);
   // create client socket to recv from
   clientSocketInfo clientSocket = setupClientSocket();
-  
-
   // make socket non blocking
   fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
+
   // Empty START packet to receive in to
   PacketHeader STARTPacket;
-  STARTPacket = waitForSTART(serverSocket, clientSocket, STARTPacket);
-  // send ACK for START
-  if (STARTPacket.type == 0) {
+
+  while (waitForSTART(serverSocket, clientSocket, STARTPacket)) {
     PacketHeader ACKPacket = createACKPacket(STARTPacket.seqNum);
-    sendACK(serverSocket, clientSocket, ACKPacket);
+    bool ackSent = sendACK(serverSocket, clientSocket, ACKPacket);
+    if (ackSent) {
+      break;
+    }
   }
 
   if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir)) {
     // send ACK for END
-    // ACK for END
     PacketHeader ACKPacket = createACKPacket(STARTPacket.seqNum);
     sendACK(serverSocket, clientSocket, ACKPacket); 
   }
-
-  // receive packet, calculate checksum
-  // if checksum value != checksum value in header, don't send ACK
-
-  // send cumulative ACK for each packet received 
-  // cumulative ACK should contain seqNum it expects to receive next
-
-  // 2 main scenarios when getting data
-  // 1. if receiver is expecting seqNum N, but receives a different seqNum, it will reply with an ACK with seqNum = N
-  // 2. if it receives a packed with seqNum = N, it will check the highest seqNum from in-order packets it has received and reply with a seqNum one greater
-   
-  return 0;
 }
