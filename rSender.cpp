@@ -82,7 +82,6 @@ PacketHeader createENDPacket(unsigned int seqNum){
   return endHeader;
 }
 
-
 PacketHeader createHeader() {
   PacketHeader header;
   return header;
@@ -211,10 +210,11 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // TODO: test with files larger than 1MB
   while(!file.eof()) {
+    memset(dataPacket.data,'\0', DATABUFFERSIZE);
     // read up to a point, then next read starts from that point
     file.read(dataPacket.data, DATABUFFERSIZE);
     bytesRead = file.gcount();
-
+    cout << "Read " << bytesRead << " bytes from file..." << endl;
     // get checksum on data
     uint32_t checkSum = crc32(dataPacket.data, bytesRead);
     // create packet header

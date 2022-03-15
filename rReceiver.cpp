@@ -14,7 +14,7 @@
 
 #include "PacketHeader.h"
 
-#define PACKETBUFFERSIZE 1472
+#define DATABUFFERSIZE 1465
 
 using namespace std; 
 	
@@ -46,7 +46,7 @@ struct clientSocketInfo {
 };
 
 struct packet : public PacketHeader {
-  char data[PACKETBUFFERSIZE];
+  char data[DATABUFFERSIZE];
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -125,7 +125,7 @@ void deserialize(char *data, packet* packet)
 
     char *p = (char*)q;
     int i = 0;
-    while (i < PACKETBUFFERSIZE)
+    while (i < DATABUFFERSIZE)
     {
         packet->data[i] = *p;
         p++;
@@ -137,11 +137,14 @@ void deserialize(char *data, packet* packet)
 bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath) {
   // packet to receive data in to
   packet receivedPacket;
+  // file to write data to
+  ofstream file(filePath, ios::binary | ios::out);
   // bytes received
   int recv_len;
   bool recvLoop = true;
 
   while (recvLoop) {
+    memset(receivedPacket.data,'\0', DATABUFFERSIZE);
     recv_len = recvfrom(serverSocket.sockfd, (char*)&receivedPacket, sizeof(receivedPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
 
     // deserialize data
@@ -155,9 +158,7 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
       // print data received
       printf("Received data: %s\n", receivedPacket.data);
       // write data to file
-      ofstream file(filePath, ios::binary | ios::out);
       file.write(receivedPacket.data, recv_len);
-      file.close();
     }
   }
 
@@ -174,6 +175,7 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   // calculate checkSum 
   // if correct checkSum, send ACK
   // if checksum value != checksum value in header, don't send ACK
+  file.close();
   return true;
 }
 
