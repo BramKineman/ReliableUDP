@@ -10,6 +10,8 @@
 #include <iostream>
 #include <cstring>
 #include <string>
+#include <fstream>
+
 #include "PacketHeader.h"
 
 #define PACKETBUFFERSIZE 1472
@@ -152,10 +154,10 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
       cout << "Received packet with Type: " << receivedPacket.type << endl;
       // print data received
       printf("Received data: %s\n", receivedPacket.data);
-      FILE *fp = fopen(filePath, "w");
-      // (elements to be written, size of each element, number of elements, file pointer)
-      fwrite(receivedPacket.data, sizeof(char), recv_len, fp);
-      fclose(fp);
+      // write data to file
+      ofstream file(filePath, ios::binary | ios::out);
+      file.write(receivedPacket.data, recv_len);
+      file.close();
     }
   }
 
