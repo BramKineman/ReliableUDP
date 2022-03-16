@@ -179,24 +179,6 @@ bool receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
   return true;
 }
 
-void serialize(packet* packet, char *data)
-{
-    int *q = (int*)data;    
-    *q = packet->type;       q++;    
-    *q = packet->seqNum;   q++;    
-    *q = packet->length;     q++;
-    *q = packet->checksum;     q++;
-
-    char *p = (char*)q;
-    int i = 0;
-    while (i < PACKETBUFFERSIZE)
-    {
-        *p = packet->data[i];
-        p++;
-        i++;
-    }
-}
-
 bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // create packet
@@ -225,10 +207,6 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     dataPacket.length = bytesRead;
     dataPacket.checksum = crc32(dataPacket.data, bytesRead);
     cout << "Sending DATA packet... " << dataPacket.data << endl;
-
-    // serialize packet
-    // char packet[PACKETBUFFERSIZE];
-    // serialize(dataPacket, packet); TODO: Serialization (with a bunch of null chars?) breaks the program
 
     // start timer when sending packet
     // timer timeout;

@@ -112,24 +112,6 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
   return true;
 }
 
-void deserialize(char *data, packet* packet)
-{
-    int *q = (int*)data;    
-    packet->type = *q;       q++;    
-    packet->seqNum = *q;   q++;    
-    packet->length = *q;     q++;
-    packet->checksum = *q;     q++;
-
-    char *p = (char*)q;
-    int i = 0;
-    while (i < DATABUFFERSIZE)
-    {
-        packet->data[i] = *p;
-        p++;
-        i++;
-    }
-}
-
 // receive data from client
 bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath) {
   // packet to receive data in to
@@ -144,8 +126,6 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
     memset(receivedPacket.data,'\0', DATABUFFERSIZE);
     recv_len = recvfrom(serverSocket.sockfd, (char*)&receivedPacket, sizeof(receivedPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
 
-    // deserialize data
-    // deserialize(buf, receivedPacket);
     if (receivedPacket.type == 1) {   // while recieved data doesn't have packet header of type 1 (END)
       cout << "Got END packet" << endl;
       recvLoop = false;
