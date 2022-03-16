@@ -151,7 +151,7 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
       recvLoop = false;
     }
     else if (receivedPacket.type == 2) {
-      cout << "Received packet with Type: " << receivedPacket.type << endl;
+      cout << "Received packet with Type: " << receivedPacket.type << " and seqNum " << receivedPacket.seqNum << endl;
       // print data received
       printf("Received data: %s\n", receivedPacket.data);
       // write data to file
@@ -198,7 +198,7 @@ int main(int argc, char* argv[])
   PacketHeader STARTPacket;
 
   while (receivedSTART(serverSocket, clientSocket, STARTPacket)) {
-    // make socket non blocking
+    // make socket non blocking to receive data
     fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
     PacketHeader ACKPacketForSTARTEND = createACKPacket(STARTPacket.seqNum);
     bool ackSent = sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND);
@@ -209,7 +209,7 @@ int main(int argc, char* argv[])
         sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND); 
       }
     } 
-    // make socket blocking
+    // make socket blocking, return to waiting for start
     fcntl(serverSocket.sockfd, F_SETFL, 0);
   }
 

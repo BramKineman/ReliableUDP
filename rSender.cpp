@@ -201,6 +201,7 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
 
   // create packet
   packet dataPacket;
+  int seqNum = 0;
   // create packet tracker
   packetTracker* tracker = new packetTracker;
 
@@ -208,21 +209,22 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
   ifstream file(filePath, ios::binary); // binary?
   streamsize bytesRead;
 
-  // TODO: test with files larger than 1MB
   while(!file.eof()) {
+    // clear buffer
     memset(dataPacket.data,'\0', DATABUFFERSIZE);
-    // read up to a point, then next read starts from that point
+
+    // read file
     file.read(dataPacket.data, DATABUFFERSIZE);
     bytesRead = file.gcount();
     cout << "Read " << bytesRead << " bytes from file..." << endl;
-    // get checksum on data
-    uint32_t checkSum = crc32(dataPacket.data, bytesRead);
+
     // create packet header
     dataPacket.type = 2;
-    dataPacket.seqNum = 0; // initial
+    dataPacket.seqNum = seqNum; // initial
+    seqNum++;
     dataPacket.length = bytesRead;
-    dataPacket.checksum = checkSum;
-    cout << "Sending DATA packet..." << dataPacket.data << endl;
+    dataPacket.checksum = crc32(dataPacket.data, bytesRead);
+    cout << "Sending DATA packet... " << dataPacket.data << endl;
 
     // serialize packet
     // char packet[PACKETBUFFERSIZE];
