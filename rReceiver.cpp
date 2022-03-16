@@ -91,16 +91,13 @@ clientSocketInfo setupClientSocket() {
   return newSocket;
 }
 
-bool waitForSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket) {
-  int recv_len;
+bool receivedSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket) {
   cout << "Waiting for START..." << endl;
-
-  while (true) {
-    recv_len = recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
-    if (STARTPacket.type == 0) {
-      printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum); 
-      return true;
-    }
+  int recv_len;
+  recv_len = recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+  if (STARTPacket.type == 0) {
+    printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum); 
+    return true;
   }
 }
 
@@ -196,23 +193,25 @@ int main(int argc, char* argv[])
   serverSocketInfo serverSocket = setupServerSocket(receiverArgs.portNum);
   // create client socket to recv from
   clientSocketInfo clientSocket = setupClientSocket();
-  // make socket non blocking
-  fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
 
   // Empty START packet to receive in to
   PacketHeader STARTPacket;
 
-  while (waitForSTART(serverSocket, clientSocket, STARTPacket)) {
-    PacketHeader ACKPacket = createACKPacket(STARTPacket.seqNum);
-    bool ackSent = sendACK(serverSocket, clientSocket, ACKPacket);
+  while (receivedSTART(serverSocket, clientSocket, STARTPacket)) {
+    // make socket non blocking
+    fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
+    PacketHeader ACKPacketForSTARTEND = createACKPacket(STARTPacket.seqNum);
+    bool ackSent = sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND);
     if (ackSent) {
-      break;
-    }
+      // break;
+      if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir)) {
+        // send ACK for END
+        sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND); 
+      }
+    } 
+    // make socket blocking
+    fcntl(serverSocket.sockfd, F_SETFL, 0);
   }
 
-  if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir)) {
-    // send ACK for END
-    PacketHeader ACKPacket = createACKPacket(STARTPacket.seqNum);
-    sendACK(serverSocket, clientSocket, ACKPacket); 
-  }
+
 }
