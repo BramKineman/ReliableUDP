@@ -18,7 +18,7 @@
 #include "PacketHeader.h"
 #include "crc32.h"
 
-#define DATABUFFERSIZE 1465
+#define DATABUFFERSIZE 1456
 #define PACKETBUFFERSIZE 1472
 
 using namespace std; 

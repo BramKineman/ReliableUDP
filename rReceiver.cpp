@@ -14,7 +14,7 @@
 
 #include "PacketHeader.h"
 
-#define DATABUFFERSIZE 1465
+#define DATABUFFERSIZE 1456
 
 using namespace std; 
 	
