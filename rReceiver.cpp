@@ -16,7 +16,8 @@
 #include "crc32.h"
 
 #define DATABUFFERSIZE 1456
-#define HEADERSIZE 44
+#define HEADERSIZE 16
+#define TOTALHEADERSIZE 44
 
 using namespace std; 
 	
@@ -63,7 +64,7 @@ auto retrieveArgs(char* argv[])  {
 PacketHeader createACKPacket(int seqNum){
   PacketHeader ACKHeader;
   ACKHeader.type = 3;
-  ACKHeader.seqNum = seqNum; // set to receieved seqNum
+  ACKHeader.seqNum = seqNum; 
   ACKHeader.length = 0; // 0 for ACKs
   ACKHeader.checksum = 0; // zero checksum for START/END/ACK packets
   return ACKHeader;
@@ -95,8 +96,7 @@ clientSocketInfo setupClientSocket() {
 
 bool receivedSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket) {
   cout << "Waiting for START..." << endl;
-  int recv_len;
-  recv_len = recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+  recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
   if (STARTPacket.type == 0) {
     printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum); 
     return true;
@@ -138,27 +138,31 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
       cout << "Type: " << receivedPacket.type << endl;
       cout << "seqNum: " << receivedPacket.seqNum << endl;
       cout << "checkSum: " << receivedPacket.checksum << endl;
-      cout << "Data: " << endl <<receivedPacket.data << endl;
+      cout << "Data: " << endl << receivedPacket.data << endl;
+      cout << "Length: " << recv_len << endl;
 
       // Calculate checksum on data
       uint32_t checksum = crc32(receivedPacket.data, recv_len - HEADERSIZE);
-      
 
       // rUDP LOGIC
       // check if checksum is correct
-      // if (checksum == receivedPacket.checksum) {
-      //   // check if seqNum is correct
-      //   if (expectedSeqNum == receievedPacket.seqNum) { // expected seqNum is correct
-      //     // check highest seqNum from in-order received packets, and send ACK with seqNum + 1
-      //     // PacketHeader ACKPacket = createACKPacket(expectedSeqNum + 1);
-      //     // sendACK(serverSocket, clientSocket, ACKPacket);
-      //   } else { // seqNum is not expected seqNum, ACK with expected seqNum
+      if (checksum == receivedPacket.checksum) {
+        cout << "Checksum is correct..." << endl;
+        // check if seqNum is correct
+        if (expectedSeqNum == receivedPacket.seqNum) { // expected seqNum is correct
+          // check highest seqNum from in-order received packets, and send ACK with seqNum + 1
+          PacketHeader ACKPacket = createACKPacket(expectedSeqNum + 1);
+          sendACK(serverSocket, clientSocket, ACKPacket);
+        } else { // seqNum is not expected seqNum, ACK with expected seqNum
+          PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
+          sendACK(serverSocket, clientSocket, ACKPacket);
+        }
+      } else {
+        cout << "Checksum failed" << endl;
+        continue;
+      }
+      cout << "********************************************************" << endl;
 
-      //   }
-      // } else {
-      //   cout << "Checksum failed" << endl;
-      //   continue;
-      // }
 
       // write data to file
       file.write(receivedPacket.data, recv_len);

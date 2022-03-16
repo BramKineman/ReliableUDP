@@ -12,7 +12,7 @@
 #include <iostream>
 #include <cstring>
 #include <time.h>
-#include <deque>
+#include <map>
 #include <fstream>
 
 #include "PacketHeader.h"
@@ -20,7 +20,8 @@
 
 #define DATABUFFERSIZE 1456
 #define PACKETBUFFERSIZE 1472
-#define HEADERSIZE 44
+#define HEADERSIZE 16
+#define TOTALHEADERSIZE 44
 
 using namespace std; 
 	
@@ -49,9 +50,10 @@ struct packet : public PacketHeader {
 };
 
 struct packetTracker {
-  deque<packet> unACKedPackets;
-  deque<packet> ACKedPackets;
-  deque<packet> packetsInWindow;
+  // <seqNum, packet>
+  map<int, packet> unACKedPackets;
+  map<int, packet> ACKedPackets;
+  map<int, packet> packetsInWindow;
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -142,7 +144,7 @@ bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
       recvLoop = false;
     }
   }
-  
+  cout << "********************************************************" << endl;
   return true;
 }
 
@@ -168,14 +170,15 @@ bool getENDACK(socketInfo &socket, PacketHeader ACKPacket) {
   return true;
 }
 
-bool receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
+PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
   {
-    printf("Error receiving ACK for DATA\n");
-    exit(1);
+    printf("No ACK to receive\n");
+    // exit(1);
+  } else {
+    printf("Received ACK for packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
   }
-  printf("Received ACK for DATA packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-  return true;
+  return ACKPacket;
 }
 
 bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
@@ -202,7 +205,6 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     // create packet header
     dataPacket.type = 2;
     dataPacket.seqNum = seqNum; // initial
-    seqNum++;
     dataPacket.length = bytesRead;
     dataPacket.checksum = crc32(dataPacket.data, bytesRead);
     uint32_t totalPacketSize = HEADERSIZE + bytesRead;
@@ -211,9 +213,9 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     // start timer when sending packet
     // timer timeout;
     // timeout.start = chrono::system_clock::now();
-    
     // add packet to unacked tracker
-    // tracker->unACKedPackets.push_back(*dataPacket);
+    tracker->unACKedPackets.insert({seqNum, dataPacket});
+    seqNum++;
 
     // send packet
     if (sendto(socket.sockfd, &dataPacket, totalPacketSize, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
@@ -221,8 +223,18 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
       printf("Error sending data\n");
       exit(1);
     }
+    cout << "Sent DATA... " << endl;  
 
-    cout << "Sent DATA... " << endl;
+    // collect any ACKs
+    PacketHeader ACKPacket = createHeader();
+    PacketHeader receivedACK = receiveDataACK(socket, ACKPacket);
+    // if ACK is received, remove from unacked tracker
+    // if (receivedACK.seqNum == dataPacket.seqNum) {
+    //   tracker->unACKedPackets.erase(dataPacket.seqNum);
+    // }
+    // output ACK
+
+    cout << "********************************************************" << endl;
   } 
 
   // close file
