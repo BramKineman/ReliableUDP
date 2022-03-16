@@ -20,6 +20,7 @@
 
 #define DATABUFFERSIZE 1456
 #define PACKETBUFFERSIZE 1472
+#define HEADERSIZE 44
 
 using namespace std; 
 	
@@ -128,9 +129,8 @@ bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
   timeout.start = chrono::system_clock::now();
 
   bool recvLoop = true;
-  int recv_len;
   while (recvLoop) {
-    recv_len = recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
+    recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
     timeout.end = chrono::system_clock::now();
     timeout.elapsed = timeout.end - timeout.start;
     if (timeout.elapsed.count() > 0.5) {
@@ -151,9 +151,8 @@ bool getENDACK(socketInfo &socket, PacketHeader ACKPacket) {
   timeout.start = chrono::system_clock::now();
 
   bool recvLoop = true;
-  int recv_len;
   while (recvLoop) {
-    recv_len = recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
+    recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
     timeout.end = chrono::system_clock::now();
     timeout.elapsed = timeout.end - timeout.start;
     if (timeout.elapsed.count() > 0.5) {
@@ -206,8 +205,9 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     seqNum++;
     dataPacket.length = bytesRead;
     dataPacket.checksum = crc32(dataPacket.data, bytesRead);
-    cout << "Sending DATA packet... " << dataPacket.data << endl;
-
+    uint32_t totalPacketSize = HEADERSIZE + bytesRead;
+    cout << endl << "Sending DATA: " << endl << dataPacket.data << endl << endl;
+    cout << "Checksum: " << dataPacket.checksum << endl;
     // start timer when sending packet
     // timer timeout;
     // timeout.start = chrono::system_clock::now();
@@ -216,7 +216,7 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     // tracker->unACKedPackets.push_back(*dataPacket);
 
     // send packet
-    if (sendto(socket.sockfd, &dataPacket, sizeof(dataPacket), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+    if (sendto(socket.sockfd, &dataPacket, totalPacketSize, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
     {
       printf("Error sending data\n");
       exit(1);

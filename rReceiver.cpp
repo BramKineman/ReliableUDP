@@ -13,8 +13,10 @@
 #include <fstream>
 
 #include "PacketHeader.h"
+#include "crc32.h"
 
 #define DATABUFFERSIZE 1456
+#define HEADERSIZE 44
 
 using namespace std; 
 	
@@ -121,37 +123,48 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   // bytes received
   int recv_len;
   bool recvLoop = true;
+  int expectedSeqNum = 0;
 
   while (recvLoop) {
     memset(receivedPacket.data,'\0', DATABUFFERSIZE);
     recv_len = recvfrom(serverSocket.sockfd, (char*)&receivedPacket, sizeof(receivedPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
 
-    if (receivedPacket.type == 1) {   // while recieved data doesn't have packet header of type 1 (END)
+    if (receivedPacket.type == 1) {
       cout << "Got END packet" << endl;
       recvLoop = false;
     }
     else if (receivedPacket.type == 2) {
-      cout << "Received packet with Type: " << receivedPacket.type << " and seqNum " << receivedPacket.seqNum << endl;
-      // print data received
-      printf("Received data: %s\n", receivedPacket.data);
+      cout << endl << "Received packet with..." << endl;
+      cout << "Type: " << receivedPacket.type << endl;
+      cout << "seqNum: " << receivedPacket.seqNum << endl;
+      cout << "checkSum: " << receivedPacket.checksum << endl;
+      cout << "Data: " << endl <<receivedPacket.data << endl;
+
+      // Calculate checksum on data
+      uint32_t checksum = crc32(receivedPacket.data, recv_len - HEADERSIZE);
+      
+
+      // rUDP LOGIC
+      // check if checksum is correct
+      // if (checksum == receivedPacket.checksum) {
+      //   // check if seqNum is correct
+      //   if (expectedSeqNum == receievedPacket.seqNum) { // expected seqNum is correct
+      //     // check highest seqNum from in-order received packets, and send ACK with seqNum + 1
+      //     // PacketHeader ACKPacket = createACKPacket(expectedSeqNum + 1);
+      //     // sendACK(serverSocket, clientSocket, ACKPacket);
+      //   } else { // seqNum is not expected seqNum, ACK with expected seqNum
+
+      //   }
+      // } else {
+      //   cout << "Checksum failed" << endl;
+      //   continue;
+      // }
+
       // write data to file
       file.write(receivedPacket.data, recv_len);
     }
   }
 
-
-  // send cumulative ACK for each packet received 
-  // cumulative ACK should contain seqNum it expects to receive next
-  // 2 main scenarios when getting data
-  // 1. if receiver is expecting seqNum N, but receives a different seqNum, it will reply with an ACK with seqNum = N
-  // 2. if it receives a packed with seqNum = N, it will check the highest seqNum from in-order packets it has received and reply with a seqNum one greater
-
-  // check seqNum of received packet
-  // if seqNum is not expected seqNum, ACK with expected seqNum
-  // if correct seqNum, check highest seqNum from in-order received packets, and send ACK with seqNum + 1
-  // calculate checkSum 
-  // if correct checkSum, send ACK
-  // if checksum value != checksum value in header, don't send ACK
   file.close();
   return true;
 }
