@@ -24,12 +24,6 @@
 #define TOTALHEADERSIZE 44
 
 using namespace std; 
-	
-// Timeout timer - 500 ms timeout 
-struct timer {
-  chrono::time_point<chrono::system_clock> start, end;
-  chrono::duration<double> elapsed;
-};
 
 struct args {
   char* receiverIP;
@@ -142,7 +136,7 @@ bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
     return true;
     }
   }
-  
+
   return false;
 }
 
@@ -198,9 +192,7 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
     uint32_t totalPacketSize = HEADERSIZE + bytesRead;
     cout << endl << "Sending DATA: " << endl << dataPacket.data << endl << endl;
     cout << "Checksum: " << dataPacket.checksum << endl;
-    // start timer when sending packet
-    // timer timeout;
-    // timeout.start = chrono::system_clock::now();
+
     // add packet to unacked tracker
     tracker->unACKedPackets.insert({seqNum, dataPacket});
     seqNum++;
