@@ -103,6 +103,15 @@ socketInfo setupSocket(char* portNum, char* host) {
   newSocket.server_len = sizeof(newSocket.server_addr);
   struct hostent* sp = gethostbyname(host);
   memcpy(&newSocket.server_addr.sin_addr, sp->h_addr, sp->h_length);
+  struct timeval timeout;
+  // set timeout to 500 ms
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 500000;
+  if (setsockopt(newSocket.sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0) {
+    perror("Error setting timeout");
+    exit(1);
+  }
+
   return newSocket;
 }
 
@@ -127,47 +136,26 @@ bool sendEND(socketInfo &socket, PacketHeader &endHeader) {
 }
 
 bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
-  timer timeout;
-  timeout.start = chrono::system_clock::now();
-
-  bool recvLoop = true;
-  while (recvLoop) {
-    recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
-    timeout.end = chrono::system_clock::now();
-    timeout.elapsed = timeout.end - timeout.start;
-    if (timeout.elapsed.count() > 0.5) {
-      cout << "TIMEOUT" << endl;
-      return false;
-    }
+  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
     if (ACKPacket.type == 3) {
-      printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-      recvLoop = false;
-    }
-  }
-  cout << "********************************************************" << endl;
-  return true;
-}
-
-bool getENDACK(socketInfo &socket, PacketHeader ACKPacket) {
-  timer timeout;
-  timeout.start = chrono::system_clock::now();
-
-  bool recvLoop = true;
-  while (recvLoop) {
-    recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len);
-    timeout.end = chrono::system_clock::now();
-    timeout.elapsed = timeout.end - timeout.start;
-    if (timeout.elapsed.count() > 0.5) {
-      cout << "TIMEOUT" << endl;
-      return false;
-    }
-    if (ACKPacket.type == 3) {
-      printf("Received ACK for END packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-      recvLoop = false;
+    printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+    return true;
     }
   }
   
-  return true;
+  return false;
+}
+
+bool getENDACK(socketInfo &socket, PacketHeader ACKPacket) {
+
+  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
+    if (ACKPacket.type == 3) {
+    printf("Received ACK for END packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+    return true;
+    }
+  }
+  
+  return false;
 }
 
 PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
@@ -260,13 +248,13 @@ int main(int argc, char* argv[])
   // setup socket
   socketInfo socket = setupSocket(senderArgs.receiverPort, senderArgs.receiverIP);
   // make socket non blocking
-  fcntl(socket.sockfd, F_SETFL, O_NONBLOCK);
+  // fcntl(socket.sockfd, F_SETFL, O_NONBLOCK);
   // send START, receive ACK
   PacketHeader STARTPacket = createSTARTPacket(); 
   if (sendSTART(socket, STARTPacket)) {
+
     PacketHeader ACKPacket;
     while(!getSTARTACK(socket, ACKPacket)) {
-      cout << "Retrying..." << endl;
       sendSTART(socket, STARTPacket);
     }
   }

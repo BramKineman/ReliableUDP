@@ -196,7 +196,7 @@ int main(int argc, char* argv[])
 
   while (receivedSTART(serverSocket, clientSocket, STARTPacket)) {
     // make socket non blocking to receive data
-    fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
+    // fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
     PacketHeader ACKPacketForSTARTEND = createACKPacket(STARTPacket.seqNum);
     bool ackSent = sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND);
     if (ackSent) {
@@ -207,7 +207,7 @@ int main(int argc, char* argv[])
       }
     } 
     // make socket blocking, return to waiting for start
-    fcntl(serverSocket.sockfd, F_SETFL, 0);
+    // fcntl(serverSocket.sockfd, F_SETFL, 0);
   }
 
 
