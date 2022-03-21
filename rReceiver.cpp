@@ -176,12 +176,15 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   return true;
 }
 
-void writeDataToFile(char* filePath, packetTracker &tracker) {
-  ofstream file(filePath, ios::binary | ios::out);
+void writeDataToFile(char* filePath, packetTracker &tracker, int &fileNum) {
+  // create string for full file path
+  string fullFilePath = string(filePath) + "/File-" + to_string(fileNum) + ".out";
+  ofstream file(fullFilePath, ios::binary | ios::out);
   for (auto it = tracker.ACKedPackets.begin(); it != tracker.ACKedPackets.end(); ++it) {
     file.write(it->second.data, it->second.length);
   }
   file.close();
+  fileNum++;
 }
 
 int main(int argc, char* argv[]) 
@@ -204,8 +207,10 @@ int main(int argc, char* argv[])
 
   // Empty START packet to receive in to
   PacketHeader STARTPacket;
-  // Tracket packer for data packets
+  // Tracker for data packets
   packetTracker tracker;
+  // file number to write to
+  int fileNum = 0;
 
   while (receivedSTART(serverSocket, clientSocket, STARTPacket)) {
     PacketHeader ACKPacketForSTARTEND = createACKPacket(STARTPacket.seqNum);
@@ -214,7 +219,7 @@ int main(int argc, char* argv[])
       
       if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker)) {
         // write data to file
-        writeDataToFile(receiverArgs.outputDir, tracker);
+        writeDataToFile(receiverArgs.outputDir, tracker, fileNum);
         // send ACK for END
         sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND); 
       }
