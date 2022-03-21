@@ -189,25 +189,16 @@ PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
 
 bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker) {
 
-  // // create packet
-  // packet dataPacket;
-  // // clear buffer
-  // memset(dataPacket.data,'\0', DATABUFFERSIZE);
   int seqNum = 0;
-  // // create packet tracker
-  // packetTracker* tracker = new packetTracker;
-
-  // open file to read
-  // ifstream file(filePath, ios::binary); // binary?
-  // streamsize bytesRead;
 
   while(true) {
     // send all packets in window
     for (int i = 0; i < atoi(windowSize); i++) {
       if (tracker.unACKedPackets[i].seqNum == seqNum) {
         cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
+        
         // send packet
-        if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], sizeof(tracker.unACKedPackets[i]) + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+        if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
         {
           printf("Error sending data\n");
           exit(1);
@@ -218,32 +209,6 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
 
     // break out of loop
     break;
-
-    // read file
-    // file.read(dataPacket.data, DATABUFFERSIZE);
-    // bytesRead = file.gcount();
-    // cout << "Read " << bytesRead << " bytes from file..." << endl;
-
-    // create packet header
-    // dataPacket.type = 2;
-    // dataPacket.seqNum = seqNum; // initial
-    // dataPacket.length = bytesRead;
-    // dataPacket.checksum = crc32(dataPacket.data, bytesRead);
-    //uint32_t totalPacketSize = HEADERSIZE + bytesRead;
-    // cout << endl << "Sending DATA: " << endl << dataPacket.data << endl << endl;
-    // cout << "Checksum: " << dataPacket.checksum << endl;
-
-    // add packet to unacked tracker
-    // tracker->unACKedPackets.insert({seqNum, dataPacket});
-    // seqNum++;
-
-    // send packet
-    // if (sendto(socket.sockfd, &dataPacket, totalPacketSize, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-    // {
-    //   printf("Error sending data\n");
-    //   exit(1);
-    // }
-    // cout << "Sent DATA... " << endl;  
 
     // collect any ACKs
     // PacketHeader ACKPacket = createHeader();
