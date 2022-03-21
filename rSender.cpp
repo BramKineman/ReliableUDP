@@ -239,8 +239,6 @@ int main(int argc, char* argv[])
 
   // setup socket
   socketInfo socket = setupSocket(senderArgs.receiverPort, senderArgs.receiverIP);
-  // make socket non blocking
-  // fcntl(socket.sockfd, F_SETFL, O_NONBLOCK);
   // send START, receive ACK
   PacketHeader STARTPacket = createSTARTPacket(); 
   if (sendSTART(socket, STARTPacket)) {
@@ -262,19 +260,6 @@ int main(int argc, char* argv[])
       }
     }
   }
-
- 
-
-  // read input file, reading X amount of bytes (1472 for header and data)
-	
-  // append checksum to data (32-bit CRC header provided for checksums)
-
-  // track sequence number, increment by 1 when sending
-
-  // set sliding window (size is inputted arg)
-  // window is the number of unACKED packets the sender can have in the network
-
-  // recieve cumalitive ACKs from receiver 
 
   cout << "Ending program..." << endl;
   return 0;
