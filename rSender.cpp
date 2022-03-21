@@ -152,6 +152,30 @@ bool getENDACK(socketInfo &socket, PacketHeader ACKPacket) {
   return false;
 }
 
+packetTracker readFileIntoTracker(char* inputFile) {
+  packetTracker tracker;
+  ifstream file(inputFile, ios::binary);
+  if (!file.is_open()) {
+    cout << "Error opening file" << endl;
+    exit(1);
+  }
+  int seqNum = 0;
+  while (!file.eof()) {
+    packet newPacket;
+    memset(newPacket.data,'\0', DATABUFFERSIZE);
+    file.read(newPacket.data, DATABUFFERSIZE);
+    streamsize bytesRead = file.gcount();
+    newPacket.type = 2;
+    newPacket.seqNum = seqNum;
+    newPacket.length = bytesRead;
+    newPacket.checksum = crc32(newPacket.data, bytesRead);
+    tracker.unACKedPackets[seqNum] = newPacket;
+    seqNum++;
+  }
+  file.close();
+  return tracker;
+}
+
 PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
   {
@@ -163,51 +187,67 @@ PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
   return ACKPacket;
 }
 
-bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
+bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker) {
 
-  // create packet
-  packet dataPacket;
+  // // create packet
+  // packet dataPacket;
+  // // clear buffer
+  // memset(dataPacket.data,'\0', DATABUFFERSIZE);
   int seqNum = 0;
-  // create packet tracker
-  packetTracker* tracker = new packetTracker;
+  // // create packet tracker
+  // packetTracker* tracker = new packetTracker;
 
   // open file to read
-  ifstream file(filePath, ios::binary); // binary?
-  streamsize bytesRead;
+  // ifstream file(filePath, ios::binary); // binary?
+  // streamsize bytesRead;
 
-  while(!file.eof()) {
-    // clear buffer
-    memset(dataPacket.data,'\0', DATABUFFERSIZE);
+  while(true) {
+    // send all packets in window
+    for (int i = 0; i < atoi(windowSize); i++) {
+      if (tracker.unACKedPackets[i].seqNum == seqNum) {
+        cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
+        // send packet
+        if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], sizeof(tracker.unACKedPackets[i]) + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+        {
+          printf("Error sending data\n");
+          exit(1);
+        }
+      }
+      seqNum++;
+    }
+
+    // break out of loop
+    break;
 
     // read file
-    file.read(dataPacket.data, DATABUFFERSIZE);
-    bytesRead = file.gcount();
-    cout << "Read " << bytesRead << " bytes from file..." << endl;
+    // file.read(dataPacket.data, DATABUFFERSIZE);
+    // bytesRead = file.gcount();
+    // cout << "Read " << bytesRead << " bytes from file..." << endl;
 
     // create packet header
-    dataPacket.type = 2;
-    dataPacket.seqNum = seqNum; // initial
-    dataPacket.length = bytesRead;
-    dataPacket.checksum = crc32(dataPacket.data, bytesRead);
-    uint32_t totalPacketSize = HEADERSIZE + bytesRead;
-    cout << endl << "Sending DATA: " << endl << dataPacket.data << endl << endl;
-    cout << "Checksum: " << dataPacket.checksum << endl;
+    // dataPacket.type = 2;
+    // dataPacket.seqNum = seqNum; // initial
+    // dataPacket.length = bytesRead;
+    // dataPacket.checksum = crc32(dataPacket.data, bytesRead);
+    //uint32_t totalPacketSize = HEADERSIZE + bytesRead;
+    // cout << endl << "Sending DATA: " << endl << dataPacket.data << endl << endl;
+    // cout << "Checksum: " << dataPacket.checksum << endl;
 
     // add packet to unacked tracker
-    tracker->unACKedPackets.insert({seqNum, dataPacket});
-    seqNum++;
+    // tracker->unACKedPackets.insert({seqNum, dataPacket});
+    // seqNum++;
 
     // send packet
-    if (sendto(socket.sockfd, &dataPacket, totalPacketSize, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-    {
-      printf("Error sending data\n");
-      exit(1);
-    }
-    cout << "Sent DATA... " << endl;  
+    // if (sendto(socket.sockfd, &dataPacket, totalPacketSize, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+    // {
+    //   printf("Error sending data\n");
+    //   exit(1);
+    // }
+    // cout << "Sent DATA... " << endl;  
 
     // collect any ACKs
-    PacketHeader ACKPacket = createHeader();
-    PacketHeader receivedACK = receiveDataACK(socket, ACKPacket);
+    // PacketHeader ACKPacket = createHeader();
+    // PacketHeader receivedACK = receiveDataACK(socket, ACKPacket);
     // if ACK is received, remove from unacked tracker
     // if (receivedACK.seqNum == dataPacket.seqNum) {
     //   tracker->unACKedPackets.erase(dataPacket.seqNum);
@@ -218,8 +258,8 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize) {
   } 
 
   // close file
-  cout << "Closing file..." << endl;
-  file.close();
+  // cout << "Closing file..." << endl;
+  // file.close();
   return true;
 }
 
@@ -242,14 +282,15 @@ int main(int argc, char* argv[])
   // send START, receive ACK
   PacketHeader STARTPacket = createSTARTPacket(); 
   if (sendSTART(socket, STARTPacket)) {
-
     PacketHeader ACKPacket;
     while(!getSTARTACK(socket, ACKPacket)) {
       sendSTART(socket, STARTPacket);
     }
   }
 
-  if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize)) {
+  packetTracker tracker = readFileIntoTracker(senderArgs.inputFile);
+
+  if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize, tracker)) {
     // send END, receive ACK
     PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
     if (sendEND(socket, ENDPacket)) {
