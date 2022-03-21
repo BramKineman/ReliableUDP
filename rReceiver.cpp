@@ -126,9 +126,6 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
 bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker) {
   // packet to receive data in to
   packet receivedPacket;
-  // file to write data to
-  ofstream file(filePath, ios::binary | ios::out);
-  // bytes received
   int recv_len;
   bool recvLoop = true;
   int expectedSeqNum = 0;
@@ -161,6 +158,8 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
           // check highest seqNum from in-order received packets, and send ACK with seqNum + 1
           expectedSeqNum++;
           PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
+          // add packet to ACKedPackets
+          tracker.ACKedPackets[receivedPacket.seqNum] = receivedPacket;
           sendACK(serverSocket, clientSocket, ACKPacket);
         } else { // seqNum is not expected seqNum, ACK with expected seqNum
           PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
@@ -171,15 +170,18 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
         continue;
       }
       cout << "********************************************************" << endl;
-
-
-      // write data to file
-      file.write(receivedPacket.data, recv_len);
     }
   }
 
-  file.close();
   return true;
+}
+
+void writeDataToFile(char* filePath, packetTracker &tracker) {
+  ofstream file(filePath, ios::binary | ios::out);
+  for (auto it = tracker.ACKedPackets.begin(); it != tracker.ACKedPackets.end(); ++it) {
+    file.write(it->second.data, it->second.length);
+  }
+  file.close();
 }
 
 int main(int argc, char* argv[]) 
@@ -211,6 +213,8 @@ int main(int argc, char* argv[])
     if (ackSent) {
       
       if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker)) {
+        // write data to file
+        writeDataToFile(receiverArgs.outputDir, tracker);
         // send ACK for END
         sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND); 
       }
