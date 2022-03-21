@@ -11,6 +11,7 @@
 #include <cstring>
 #include <string>
 #include <fstream>
+#include <map>
 
 #include "PacketHeader.h"
 #include "crc32.h"
@@ -50,6 +51,13 @@ struct clientSocketInfo {
 
 struct packet : public PacketHeader {
   char data[DATABUFFERSIZE];
+};
+
+struct packetTracker {
+  // <seqNum, packet>
+  map<int, packet> unACKedPackets;
+  map<int, packet> ACKedPackets;
+  map<int, packet> packetsInWindow;
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -115,7 +123,7 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
 }
 
 // receive data from client
-bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath) {
+bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker) {
   // packet to receive data in to
   packet receivedPacket;
   // file to write data to
@@ -151,7 +159,8 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
         // check if seqNum is correct
         if (expectedSeqNum == receivedPacket.seqNum) { // expected seqNum is correct
           // check highest seqNum from in-order received packets, and send ACK with seqNum + 1
-          PacketHeader ACKPacket = createACKPacket(expectedSeqNum + 1);
+          expectedSeqNum++;
+          PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
           sendACK(serverSocket, clientSocket, ACKPacket);
         } else { // seqNum is not expected seqNum, ACK with expected seqNum
           PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
@@ -183,7 +192,7 @@ int main(int argc, char* argv[])
   args receiverArgs = retrieveArgs(argv);
   cout << "port: " << receiverArgs.portNum << endl;
   cout << "window: " << receiverArgs.windowSize << endl;
-  cout << "outputDir: " << receiverArgs.outputDir << endl;
+  cout << "outputDir: " << receiverArgs.outputDir << endl; // TODO: needs to be DIRECTORY, not FILE
   cout << "log: " << receiverArgs.log << endl;
 
   // create server socket to send from
@@ -193,13 +202,15 @@ int main(int argc, char* argv[])
 
   // Empty START packet to receive in to
   PacketHeader STARTPacket;
+  // Tracket packer for data packets
+  packetTracker tracker;
 
   while (receivedSTART(serverSocket, clientSocket, STARTPacket)) {
     PacketHeader ACKPacketForSTARTEND = createACKPacket(STARTPacket.seqNum);
     bool ackSent = sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND);
     if (ackSent) {
-      // break;
-      if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir)) {
+      
+      if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker)) {
         // send ACK for END
         sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND); 
       }

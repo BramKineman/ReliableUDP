@@ -48,6 +48,7 @@ struct packetTracker {
   map<int, packet> unACKedPackets;
   map<int, packet> ACKedPackets;
   map<int, packet> packetsInWindow;
+  int highestACKSeqNum;
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -196,7 +197,9 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
     for (int i = 0; i < atoi(windowSize); i++) {
       if (tracker.unACKedPackets[i].seqNum == seqNum) {
         cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
-        
+
+        // TODO: only need timer on first packet in window
+
         // send packet
         if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
         {
@@ -207,24 +210,22 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
       seqNum++;
     }
 
+    // collect all ACKs
+    for (int i = 0; i < atoi(windowSize); i++) {
+      PacketHeader ACKPacket;
+      ACKPacket = receiveDataACK(socket, ACKPacket);
+      // find the highest seqNum ACK
+      if (ACKPacket.seqNum > tracker.highestACKSeqNum) {
+        tracker.highestACKSeqNum = ACKPacket.seqNum;
+      }
+    }
+    
+    
     // break out of loop
     break;
-
-    // collect any ACKs
-    // PacketHeader ACKPacket = createHeader();
-    // PacketHeader receivedACK = receiveDataACK(socket, ACKPacket);
-    // if ACK is received, remove from unacked tracker
-    // if (receivedACK.seqNum == dataPacket.seqNum) {
-    //   tracker->unACKedPackets.erase(dataPacket.seqNum);
-    // }
-    // output ACK
-
     cout << "********************************************************" << endl;
   } 
 
-  // close file
-  // cout << "Closing file..." << endl;
-  // file.close();
   return true;
 }
 
