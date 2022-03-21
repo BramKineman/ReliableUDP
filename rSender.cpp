@@ -191,10 +191,12 @@ PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
 bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker) {
 
   int seqNum = 0;
+  int windowBegin = 0;
 
   while(true) {
+
     // send all packets in window
-    for (int i = 0; i < atoi(windowSize); i++) {
+    for (int i = windowBegin; i < atoi(windowSize); i++) {
       if (tracker.unACKedPackets[i].seqNum == seqNum) {
         cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
 
@@ -219,10 +221,20 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
         tracker.highestACKSeqNum = ACKPacket.seqNum;
       }
     }
-    
-    
-    // break out of loop
-    break;
+
+    // put ACKed packets up to highest seqNum ACK into ACKedPackets
+    for (int i = 0; i < tracker.highestACKSeqNum; i++) {
+      tracker.ACKedPackets[i] = tracker.unACKedPackets[i];
+    }
+
+    // move window to lowest unACKED packet
+    windowBegin = tracker.highestACKSeqNum;
+
+    // check if all packets ACKed
+    if (tracker.highestACKSeqNum == (tracker.unACKedPackets.size())) {
+      break;
+    }
+
     cout << "********************************************************" << endl;
   } 
 
