@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <string>
 #include <stdlib.h>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -112,49 +113,6 @@ void setSocketTimeout(int sockfd, int timeout) {
   }
 }
 
-bool sendSTART(socketInfo &socket, PacketHeader &startHeader) {
-  if (sendto(socket.sockfd, (char*)&startHeader, sizeof(startHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-  {
-    printf("Error sending start\n");
-    exit(1);
-  }
-  cout << "Sent START..." << endl;
-  return true;
-}
-
-bool sendEND(socketInfo &socket, PacketHeader &endHeader) {
-  if (sendto(socket.sockfd, (char*)&endHeader, sizeof(endHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-  {
-    printf("Error sending end\n");
-    exit(1);
-  }
-  cout << "Sent END..." << endl;
-  return true;
-}
-
-bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
-  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
-    if (ACKPacket.type == 3) {
-    printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-    return true;
-    }
-  }
-
-  return false;
-}
-
-bool getENDACK(socketInfo &socket, PacketHeader ACKPacket) {
-
-  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
-    if (ACKPacket.type == 3) {
-    printf("Received ACK for END packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-    return true;
-    }
-  }
-  
-  return false;
-}
-
 packetTracker readFileIntoTracker(char* inputFile) {
   packetTracker tracker;
   ifstream file(inputFile, ios::binary);
@@ -179,18 +137,82 @@ packetTracker readFileIntoTracker(char* inputFile) {
   return tracker;
 }
 
-PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
+void writeToLogFile(char* logFilePath, string type, string seqNum, string length, string checksum) {
+  string logMessage = type + " " + seqNum + " " + length + " " + checksum + "\n";
+  string fullFilePath = string(logFilePath);
+  ofstream log(fullFilePath, ios_base::app);
+  if (!log.is_open()) {
+    cout << "Error opening log file" << endl;
+    exit(1);
+  }
+  // stream to output file
+  log << logMessage;
+  log.close();
+}
+
+bool sendSTART(socketInfo &socket, PacketHeader &startHeader, char* logFile) {
+  if (sendto(socket.sockfd, (char*)&startHeader, sizeof(startHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+  {
+    printf("Error sending start\n");
+    exit(1);
+  }
+  writeToLogFile(logFile, to_string(startHeader.type), to_string(startHeader.seqNum), to_string(startHeader.length), to_string(startHeader.checksum));
+  cout << "Sent START..." << endl;
+  return true;
+}
+
+bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
+  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
+    if (ACKPacket.type == 3) {
+    printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+    // write to log file
+    writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
+    return true;
+    }
+  }
+  return false;
+}
+
+bool sendEND(socketInfo &socket, PacketHeader &endHeader, char* logFile) {
+  if (sendto(socket.sockfd, (char*)&endHeader, sizeof(endHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+  {
+    printf("Error sending end\n");
+    exit(1);
+  }
+  // write to log file
+  writeToLogFile(logFile, to_string(endHeader.type), to_string(endHeader.seqNum), to_string(endHeader.length), to_string(endHeader.checksum));
+  cout << "Sent END..." << endl;
+  return true;
+}
+
+bool getENDACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
+
+  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
+    if (ACKPacket.type == 3) {
+    printf("Received ACK for END packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+    return true;
+    }
+  }
+  // write to log file
+  writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
+  
+  return false;
+}
+
+PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
   {
     printf("No ACK to receive\n");
     // exit(1);
   } else {
     printf("Received ACK for packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
+    // write to log file
+    writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
   }
   return ACKPacket;
 }
 
-bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker) {
+bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker, char* logFile) {
 
   bool sendLoop = true;
   int seqNum = 0;
@@ -214,11 +236,14 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
         // send packet
         if (i == 0) { // only have timeout on first packet in window
           setSocketTimeout(socket.sockfd, TIMEOUT);
+
           if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
           {
             printf("Error sending data\n");
             exit(1);
           }
+          // write to log
+          writeToLogFile(logFile, to_string(tracker.unACKedPackets[i].type), to_string(tracker.unACKedPackets[i].seqNum), to_string(tracker.unACKedPackets[i].length), to_string(tracker.unACKedPackets[i].checksum));
           // set socket timeout to 0
           setSocketTimeout(socket.sockfd, 0);
         } else {
@@ -227,6 +252,8 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
             printf("Error sending data\n");
             exit(1);
           }
+          // write to log
+          writeToLogFile(logFile, to_string(tracker.unACKedPackets[i].type), to_string(tracker.unACKedPackets[i].seqNum), to_string(tracker.unACKedPackets[i].length), to_string(tracker.unACKedPackets[i].checksum));
         }
       }
       seqNum++;
@@ -235,13 +262,13 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
     // collect all ACKs
     for (int i = 0; i < atoi(windowSize); i++) {
       PacketHeader ACKPacket;
-      ACKPacket = receiveDataACK(socket, ACKPacket);
+      ACKPacket = receiveDataACK(socket, ACKPacket, logFile);
       // find the highest seqNum ACK
       if (ACKPacket.seqNum > tracker.highestACKSeqNum) {
         tracker.highestACKSeqNum = ACKPacket.seqNum;
         // check if all packets have been ACKed
         if ((tracker.highestACKSeqNum) == (tracker.unACKedPackets.size())) {
-          cout << "All packets ACKed" << endl;
+          cout << "All packets ACKed!" << endl;
           sendLoop = false;
           break;
         }
@@ -281,26 +308,26 @@ int main(int argc, char* argv[])
   socketInfo socket = setupSocket(senderArgs.receiverPort, senderArgs.receiverIP);
   // set timeout to 500 ms
   setSocketTimeout(socket.sockfd, TIMEOUT);
+
   // send START, receive ACK
   PacketHeader STARTPacket = createSTARTPacket(); 
-  if (sendSTART(socket, STARTPacket)) {
+  if (sendSTART(socket, STARTPacket, senderArgs.log)) {
     PacketHeader ACKPacket;
-    while(!getSTARTACK(socket, ACKPacket)) {
-      sendSTART(socket, STARTPacket);
+    while(!getSTARTACK(socket, ACKPacket, senderArgs.log)) {
+      sendSTART(socket, STARTPacket, senderArgs.log);
     }
   }
 
   packetTracker tracker = readFileIntoTracker(senderArgs.inputFile);
-  cout << "tracker.unACKedPackets size: " << tracker.unACKedPackets.size() << endl;
 
-  if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize, tracker)) {
+  if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize, tracker, senderArgs.log)) {
     // send END, receive ACK
     PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
-    if (sendEND(socket, ENDPacket)) {
+    if (sendEND(socket, ENDPacket, senderArgs.log)) {
       PacketHeader ACKPacket;
-      while(!getENDACK(socket, ACKPacket)) {
+      while(!getENDACK(socket, ACKPacket, senderArgs.log)) {
         cout << "Retrying..." << endl;
-        sendEND(socket, ENDPacket);
+        sendEND(socket, ENDPacket, senderArgs.log);
       }
     }
   }
