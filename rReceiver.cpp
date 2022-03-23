@@ -161,7 +161,11 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
           // add packet to ACKedPackets
           tracker.ACKedPackets[receivedPacket.seqNum] = receivedPacket;
           sendACK(serverSocket, clientSocket, ACKPacket);
+        } else if (receivedPacket.seqNum >= expectedSeqNum + atoi(windowSize)) {
+           // drop packets that are greater than or equal to expectedSeqNum + windowSize
+          cout << "Dropping packet with seqNum: " << receivedPacket.seqNum << endl;
         } else { // seqNum is not expected seqNum, ACK with expected seqNum
+          cout << "Unexpected seqNum..." << endl;
           PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
           sendACK(serverSocket, clientSocket, ACKPacket);
         }

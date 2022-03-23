@@ -98,16 +98,17 @@ socketInfo setupSocket(char* portNum, char* host) {
   newSocket.server_len = sizeof(newSocket.server_addr);
   struct hostent* sp = gethostbyname(host);
   memcpy(&newSocket.server_addr.sin_addr, sp->h_addr, sp->h_length);
-  struct timeval timeout;
-  // set timeout to 500 ms
-  timeout.tv_sec = 0;
-  timeout.tv_usec = 500000;
-  if (setsockopt(newSocket.sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0) {
+  return newSocket;
+}
+
+void setSocketTimeout(int sockfd, int timeout) {
+  struct timeval tv;
+  tv.tv_sec = 0;
+  tv.tv_usec = timeout;
+  if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv)) < 0) {
     perror("Error setting timeout");
     exit(1);
   }
-
-  return newSocket;
 }
 
 bool sendSTART(socketInfo &socket, PacketHeader &startHeader) {
@@ -192,22 +193,33 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
 
   int seqNum = 0;
   int windowBegin = 0;
+  int windowEnd = atoi(windowSize);
 
   while(true) {
-
     // send all packets in window
-    for (int i = windowBegin; i < atoi(windowSize); i++) {
+    for (int i = windowBegin; i < windowEnd; i++) {
       if (tracker.unACKedPackets[i].seqNum == seqNum) {
         cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
-
-        // TODO: only need timer on first packet in window
+        cout << "With SeqNum: " << tracker.unACKedPackets[i].seqNum << endl;
 
         // send packet
-        if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-        {
-          printf("Error sending data\n");
-          exit(1);
+        if (i == 0) { // only have timeout on first packet in window
+          if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+          {
+            printf("Error sending data\n");
+            exit(1);
+          }
+          // set socket timeout to 0
+          setSocketTimeout(socket.sockfd, 0);
+        } else {
+          if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+          {
+            printf("Error sending data\n");
+            exit(1);
+          }
         }
+        
+        
       }
       seqNum++;
     }
@@ -228,13 +240,14 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
     }
 
     // move window to lowest unACKED packet
+    windowEnd = tracker.highestACKSeqNum + atoi(windowSize);
     windowBegin = tracker.highestACKSeqNum;
 
     // check if all packets ACKed
     if (tracker.highestACKSeqNum == (tracker.unACKedPackets.size())) {
+      cout << "All packets ACKed!" << endl;
       break;
     }
-
     cout << "********************************************************" << endl;
   } 
 
@@ -257,6 +270,8 @@ int main(int argc, char* argv[])
 
   // setup socket
   socketInfo socket = setupSocket(senderArgs.receiverPort, senderArgs.receiverIP);
+  // set timeout to 500 ms
+  setSocketTimeout(socket.sockfd, 500000);
   // send START, receive ACK
   PacketHeader STARTPacket = createSTARTPacket(); 
   if (sendSTART(socket, STARTPacket)) {
