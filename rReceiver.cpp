@@ -129,51 +129,66 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   int recv_len;
   bool recvLoop = true;
   int expectedSeqNum = 0;
+  int windowBegin = 0;
+  int windowEnd = atoi(windowSize);
 
   while (recvLoop) {
-    memset(receivedPacket.data,'\0', DATABUFFERSIZE);
-    recv_len = recvfrom(serverSocket.sockfd, (char*)&receivedPacket, sizeof(receivedPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
 
-    if (receivedPacket.type == 1) {
-      cout << "Got END packet" << endl;
-      recvLoop = false;
-    }
-    else if (receivedPacket.type == 2) {
-      cout << endl << "Received packet with..." << endl;
-      cout << "Type: " << receivedPacket.type << endl;
-      cout << "seqNum: " << receivedPacket.seqNum << endl;
-      cout << "checkSum: " << receivedPacket.checksum << endl;
-      cout << "Data: " << endl << receivedPacket.data << endl;
-      cout << "Length: " << recv_len << endl;
+    // try to receive all packets in window
+    // loop through window size
+    for (int i = windowBegin; i < windowEnd; i++) {
+      memset(receivedPacket.data,'\0', DATABUFFERSIZE);
+      recv_len = recvfrom(serverSocket.sockfd, (char*)&receivedPacket, sizeof(receivedPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
 
-      // Calculate checksum on data
-      uint32_t checksum = crc32(receivedPacket.data, recv_len - HEADERSIZE);
-
-      // rUDP LOGIC
-      // check if checksum is correct
-      if (checksum == receivedPacket.checksum) {
-        cout << "Checksum is correct..." << endl;
-        // check if seqNum is correct
-        if (expectedSeqNum == receivedPacket.seqNum) { // expected seqNum is correct
-          // check highest seqNum from in-order received packets, and send ACK with seqNum + 1
-          expectedSeqNum++;
-          PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
-          // add packet to ACKedPackets
-          tracker.ACKedPackets[receivedPacket.seqNum] = receivedPacket;
-          sendACK(serverSocket, clientSocket, ACKPacket);
-        } else if (receivedPacket.seqNum >= expectedSeqNum + atoi(windowSize)) {
-           // drop packets that are greater than or equal to expectedSeqNum + windowSize
-          cout << "Dropping packet with seqNum: " << receivedPacket.seqNum << endl;
-        } else { // seqNum is not expected seqNum, ACK with expected seqNum
-          cout << "Unexpected seqNum..." << endl;
-          PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
-          sendACK(serverSocket, clientSocket, ACKPacket);
-        }
-      } else {
-        cout << "Checksum failed" << endl;
-        continue;
+      if (receivedPacket.type == 1) {
+        cout << "Got END packet" << endl;
+        recvLoop = false;
+        break;
       }
-      cout << "********************************************************" << endl;
+      else if (receivedPacket.type == 2) {
+        cout << endl << "Received packet with..." << endl;
+        cout << "Type: " << receivedPacket.type << endl;
+        cout << "seqNum: " << receivedPacket.seqNum << endl;
+        cout << "checkSum: " << receivedPacket.checksum << endl;
+        cout << "Data: " << endl << receivedPacket.data << endl;
+        cout << "Length: " << recv_len << endl;
+
+        // Calculate checksum on data
+        uint32_t checksum = crc32(receivedPacket.data, recv_len - HEADERSIZE);
+
+        // rUDP LOGIC
+        // check if checksum is correct
+        if (checksum == receivedPacket.checksum) {
+          cout << "Checksum is correct..." << endl;
+          // check if seqNum is correct
+          if (expectedSeqNum == receivedPacket.seqNum) { // expected seqNum is correct
+            // check highest seqNum from in-order received packets, and send ACK with seqNum + 1
+            expectedSeqNum++;
+            PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
+            // add packet to ACKedPackets
+            tracker.ACKedPackets[receivedPacket.seqNum] = receivedPacket;
+            sendACK(serverSocket, clientSocket, ACKPacket);
+          } else if (receivedPacket.seqNum >= expectedSeqNum + atoi(windowSize)) {
+            // drop packets that are greater than or equal to expectedSeqNum + windowSize
+            cout << "Dropping packet with seqNum: " << receivedPacket.seqNum << endl;
+          } else { // seqNum is not expected seqNum, ACK with expected seqNum
+            cout << "Unexpected seqNum..." << endl;
+            PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
+            sendACK(serverSocket, clientSocket, ACKPacket);
+          }
+        } else {
+          cout << "Checksum failed, dropping packet..." << endl;
+          continue;
+        }
+
+        // update windowbegin to highest seqNum in ACKedPackets
+        if (tracker.ACKedPackets.size() > 0) {
+          windowBegin = tracker.ACKedPackets.rbegin()->first;
+        }
+        windowEnd = windowBegin + atoi(windowSize);
+
+        cout << "********************************************************" << endl;
+      }
     }
   }
 
