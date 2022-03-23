@@ -58,6 +58,7 @@ struct packetTracker {
   map<int, packet> unACKedPackets;
   map<int, packet> ACKedPackets;
   map<int, packet> packetsInWindow;
+  map<int, packet> bufferedPackets;
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -144,6 +145,12 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
 bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker, char* logFilePath) {
   // packet to receive data in to
   packet receivedPacket;
+  // clear tracker variables
+  tracker.unACKedPackets.clear();
+  tracker.ACKedPackets.clear();
+  tracker.packetsInWindow.clear();
+  tracker.bufferedPackets.clear();
+  // initializing variables
   int recv_len;
   bool recvLoop = true;
   int expectedSeqNum = 0;
@@ -151,6 +158,7 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   int windowEnd = atoi(windowSize);
 
   while (recvLoop) {
+    cout << "Window range: " << windowBegin << " - " << windowEnd << endl;
 
     // try to receive all packets in window
     // loop through window size
@@ -193,6 +201,8 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
             cout << "Dropping packet with seqNum: " << receivedPacket.seqNum << endl;
           } else { // seqNum is not expected seqNum, ACK with expected seqNum
             cout << "Unexpected seqNum..." << endl;
+            // buffer packet
+            tracker.bufferedPackets[receivedPacket.seqNum] = receivedPacket;
             PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
             sendACK(serverSocket, clientSocket, ACKPacket, logFilePath);
           }
@@ -202,10 +212,12 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
         }
 
         // update windowbegin to highest seqNum in ACKedPackets
+        cout << "New ackedpackets size: " << tracker.ACKedPackets.size() << endl;
         if (tracker.ACKedPackets.size() > 0) {
-          windowBegin = tracker.ACKedPackets.rbegin()->first;
+          windowBegin = tracker.ACKedPackets.rbegin()->first + 1;
         }
         windowEnd = windowBegin + atoi(windowSize);
+        cout << "Window moved to: " << windowBegin << " - " << windowEnd << endl;
 
         cout << "********************************************************" << endl;
       }
@@ -236,7 +248,7 @@ int main(int argc, char* argv[])
   args receiverArgs = retrieveArgs(argv);
   cout << "port: " << receiverArgs.portNum << endl;
   cout << "window: " << receiverArgs.windowSize << endl;
-  cout << "outputDir: " << receiverArgs.outputDir << endl; // TODO: needs to be DIRECTORY, not FILE
+  cout << "outputDir: " << receiverArgs.outputDir << endl;
   cout << "log: " << receiverArgs.log << endl;
 
   // create server socket to send from
@@ -257,6 +269,10 @@ int main(int argc, char* argv[])
     if (ackSent) {
       
       if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker, receiverArgs.log)) {
+        // put all buffered packets into ACKedPackets
+        for (auto it = tracker.bufferedPackets.begin(); it != tracker.bufferedPackets.end(); ++it) {
+          tracker.ACKedPackets[it->first] = it->second;
+        }
         // write data to file
         writeDataToFile(receiverArgs.outputDir, tracker, fileNum);
         // send ACK for END

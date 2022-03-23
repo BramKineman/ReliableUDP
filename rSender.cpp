@@ -215,13 +215,16 @@ PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket, char* lo
 bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker, char* logFile) {
 
   bool sendLoop = true;
-  int seqNum = 0;
   int windowBegin = 0;
   int windowEnd = atoi(windowSize);
+  int lastHighestSeqNum = 0;
 
   while(sendLoop) {
+    setSocketTimeout(socket.sockfd, 0);
+
     // send all packets in window
     for (int i = windowBegin; i < windowEnd; i++) {
+      cout << "Trying to send data..." << endl;
       // Guard for window size larger than number of packets to send
       if (tracker.unACKedPackets.find(i) == tracker.unACKedPackets.end()) {
         cout << "Window size larger than number of packets to send..." << endl;
@@ -229,42 +232,31 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
         break;
       }
 
-      if (tracker.unACKedPackets[i].seqNum == seqNum) {
-        cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
-        cout << "With SeqNum: " << tracker.unACKedPackets[i].seqNum << endl;
 
-        // send packet
-        if (i == 0) { // only have timeout on first packet in window
-          setSocketTimeout(socket.sockfd, TIMEOUT);
+      cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
+      cout << "With SeqNum: " << tracker.unACKedPackets[i].seqNum << endl;
 
-          if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-          {
-            printf("Error sending data\n");
-            exit(1);
-          }
-          // write to log
-          writeToLogFile(logFile, to_string(tracker.unACKedPackets[i].type), to_string(tracker.unACKedPackets[i].seqNum), to_string(tracker.unACKedPackets[i].length), to_string(tracker.unACKedPackets[i].checksum));
-          // set socket timeout to 0
-          setSocketTimeout(socket.sockfd, 0);
-        } else {
-          if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-          {
-            printf("Error sending data\n");
-            exit(1);
-          }
-          // write to log
-          writeToLogFile(logFile, to_string(tracker.unACKedPackets[i].type), to_string(tracker.unACKedPackets[i].seqNum), to_string(tracker.unACKedPackets[i].length), to_string(tracker.unACKedPackets[i].checksum));
+      // send packet
+      if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+        {
+          printf("Error sending data\n");
+          exit(1);
         }
-      }
-      seqNum++;
+      // write to log
+      writeToLogFile(logFile, to_string(tracker.unACKedPackets[i].type), to_string(tracker.unACKedPackets[i].seqNum), to_string(tracker.unACKedPackets[i].length), to_string(tracker.unACKedPackets[i].checksum));
     }
+
+    lastHighestSeqNum = tracker.highestACKSeqNum;
 
     // collect all ACKs
     for (int i = 0; i < atoi(windowSize); i++) {
+      setSocketTimeout(socket.sockfd, TIMEOUT);
       PacketHeader ACKPacket;
       ACKPacket = receiveDataACK(socket, ACKPacket, logFile);
+      
       // find the highest seqNum ACK
       if (ACKPacket.seqNum > tracker.highestACKSeqNum) {
+        cout << "updating highestACKSeqNum to " << ACKPacket.seqNum << endl;
         tracker.highestACKSeqNum = ACKPacket.seqNum;
         // check if all packets have been ACKed
         if ((tracker.highestACKSeqNum) == (tracker.unACKedPackets.size())) {
@@ -276,13 +268,17 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
     }
 
     // put ACKed packets up to highest seqNum ACK into ACKedPackets
-    for (int i = 0; i < tracker.highestACKSeqNum; i++) {
+    for (int i = lastHighestSeqNum; i < tracker.highestACKSeqNum; i++) {
+      cout << "Moving packet with seqNum " << i << " to ACKedPackets" << endl;
       tracker.ACKedPackets[i] = tracker.unACKedPackets[i];
     }
 
     // move window to lowest unACKED packet
+    cout << "Updating window to: " << tracker.highestACKSeqNum << endl;
     windowEnd = tracker.highestACKSeqNum + atoi(windowSize);
     windowBegin = tracker.highestACKSeqNum;
+    
+    cout << "NEW WINDOW RANGE: " << windowBegin << "-" << windowEnd << endl;
 
     cout << "********************************************************" << endl;
   } 
@@ -323,6 +319,8 @@ int main(int argc, char* argv[])
   if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize, tracker, senderArgs.log)) {
     // send END, receive ACK
     PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
+    // set timeout to 500 ms
+    setSocketTimeout(socket.sockfd, TIMEOUT);
     if (sendEND(socket, ENDPacket, senderArgs.log)) {
       PacketHeader ACKPacket;
       while(!getENDACK(socket, ACKPacket, senderArgs.log)) {
