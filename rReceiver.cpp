@@ -102,16 +102,32 @@ clientSocketInfo setupClientSocket() {
   return newSocket;
 }
 
-bool receivedSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket) {
+void writeToLogFile(char* logFilePath, string type, string seqNum, string length, string checksum) {
+  string logMessage = type + " " + seqNum + " " + length + " " + checksum + "\n";
+  string fullFilePath = string(logFilePath);
+  ofstream log(fullFilePath, ios_base::app);
+  if (!log.is_open()) {
+    cout << "Error opening log file" << endl;
+    exit(1);
+  }
+  // stream to output file
+  log << logMessage;
+  log.close();
+}
+
+
+bool receivedSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket, char* logFilePath) {
   cout << "Waiting for START..." << endl;
   recvfrom(serverSocket.sockfd, (char*)&STARTPacket, sizeof(STARTPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
   if (STARTPacket.type == 0) {
-    printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum); 
+    printf("Received START packet with SeqNum: %d\n", STARTPacket.seqNum);
+    // write to log file
+    writeToLogFile(logFilePath, to_string(STARTPacket.type), to_string(STARTPacket.seqNum), to_string(STARTPacket.length), to_string(STARTPacket.checksum));
     return true;
   }
 }
 
-bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &ACKPacket) {
+bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &ACKPacket, char* logFilePath) {
   if (sendto(serverSocket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr*)&clientSocket.client_addr, clientSocket.client_len) == -1)
   {
       // get error message and print it
@@ -119,11 +135,13 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
       return false;
   }
   printf("Sent ACK packet with SeqNum: %d\n", ACKPacket.seqNum);
+  // write to log file
+  writeToLogFile(logFilePath, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
   return true;
 }
 
 // receive data from client
-bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker) {
+bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker, char* logFilePath) {
   // packet to receive data in to
   packet receivedPacket;
   int recv_len;
@@ -139,6 +157,8 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
     for (int i = windowBegin; i < windowEnd; i++) {
       memset(receivedPacket.data,'\0', DATABUFFERSIZE);
       recv_len = recvfrom(serverSocket.sockfd, (char*)&receivedPacket, sizeof(receivedPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+      // write to log file
+      writeToLogFile(logFilePath, to_string(receivedPacket.type), to_string(receivedPacket.seqNum), to_string(receivedPacket.length), to_string(receivedPacket.checksum));
 
       if (receivedPacket.type == 1) {
         cout << "Got END packet" << endl;
@@ -167,14 +187,14 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
             PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
             // add packet to ACKedPackets
             tracker.ACKedPackets[receivedPacket.seqNum] = receivedPacket;
-            sendACK(serverSocket, clientSocket, ACKPacket);
+            sendACK(serverSocket, clientSocket, ACKPacket, logFilePath);
           } else if (receivedPacket.seqNum >= expectedSeqNum + atoi(windowSize)) {
             // drop packets that are greater than or equal to expectedSeqNum + windowSize
             cout << "Dropping packet with seqNum: " << receivedPacket.seqNum << endl;
           } else { // seqNum is not expected seqNum, ACK with expected seqNum
             cout << "Unexpected seqNum..." << endl;
             PacketHeader ACKPacket = createACKPacket(expectedSeqNum);
-            sendACK(serverSocket, clientSocket, ACKPacket);
+            sendACK(serverSocket, clientSocket, ACKPacket, logFilePath);
           }
         } else {
           cout << "Checksum failed, dropping packet..." << endl;
@@ -231,16 +251,16 @@ int main(int argc, char* argv[])
   // file number to write to
   int fileNum = 0;
 
-  while (receivedSTART(serverSocket, clientSocket, STARTPacket)) {
+  while (receivedSTART(serverSocket, clientSocket, STARTPacket, receiverArgs.log)) {
     PacketHeader ACKPacketForSTARTEND = createACKPacket(STARTPacket.seqNum);
-    bool ackSent = sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND);
+    bool ackSent = sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, receiverArgs.log);
     if (ackSent) {
       
-      if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker)) {
+      if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker, receiverArgs.log)) {
         // write data to file
         writeDataToFile(receiverArgs.outputDir, tracker, fileNum);
         // send ACK for END
-        sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND); 
+        sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, receiverArgs.log); 
       }
     } 
   }
