@@ -169,7 +169,11 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
       // write to log file
       writeToLogFile(logFilePath, to_string(receivedPacket.type), to_string(receivedPacket.seqNum), to_string(receivedPacket.length), to_string(receivedPacket.checksum));
 
-      if (receivedPacket.type == 1) {
+      if (receivedPacket.type == 0) {
+        // ignore START packets
+        continue;
+      }
+      else if (receivedPacket.type == 1) {
         cout << "Got END packet" << endl;
         recvLoop = false;
         break;

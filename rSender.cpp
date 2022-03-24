@@ -221,7 +221,6 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
 
   while(sendLoop) {
     setSocketTimeout(socket.sockfd, 0);
-
     // send all packets in window
     for (int i = windowBegin; i < windowEnd; i++) {
       cout << "Trying to send data..." << endl;
@@ -253,7 +252,7 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
       setSocketTimeout(socket.sockfd, TIMEOUT);
       PacketHeader ACKPacket;
       ACKPacket = receiveDataACK(socket, ACKPacket, logFile);
-            
+
       // find the highest seqNum ACK
       if ((ACKPacket.seqNum > tracker.highestACKSeqNum) && (ACKPacket.type == 3)) {
         tracker.highestACKSeqNum = ACKPacket.seqNum;
