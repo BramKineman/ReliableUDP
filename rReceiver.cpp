@@ -126,6 +126,7 @@ bool receivedSTART(serverSocketInfo &serverSocket, clientSocketInfo &clientSocke
     writeToLogFile(logFilePath, to_string(STARTPacket.type), to_string(STARTPacket.seqNum), to_string(STARTPacket.length), to_string(STARTPacket.checksum));
     return true;
   }
+  return false;
 }
 
 bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &ACKPacket, char* logFilePath) {

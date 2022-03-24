@@ -203,7 +203,7 @@ PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket, char* lo
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
   {
     printf("No ACK to receive\n");
-    // exit(1);
+
   } else {
     printf("Received ACK for packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
     // write to log file
@@ -232,7 +232,7 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
         break;
       }
 
-
+      cout << "NUMBER OF PACKETS TO SEND: " << tracker.unACKedPackets.size() << endl;
       cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
       cout << "With SeqNum: " << tracker.unACKedPackets[i].seqNum << endl;
 
@@ -253,10 +253,9 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
       setSocketTimeout(socket.sockfd, TIMEOUT);
       PacketHeader ACKPacket;
       ACKPacket = receiveDataACK(socket, ACKPacket, logFile);
-      
+            
       // find the highest seqNum ACK
-      if (ACKPacket.seqNum > tracker.highestACKSeqNum) {
-        cout << "updating highestACKSeqNum to " << ACKPacket.seqNum << endl;
+      if ((ACKPacket.seqNum > tracker.highestACKSeqNum) && (ACKPacket.type == 3)) {
         tracker.highestACKSeqNum = ACKPacket.seqNum;
         // check if all packets have been ACKed
         if ((tracker.highestACKSeqNum) == (tracker.unACKedPackets.size())) {
@@ -267,9 +266,10 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
       }
     }
 
+    cout << "Highest ACK SeqNum: " << tracker.highestACKSeqNum << endl;
+
     // put ACKed packets up to highest seqNum ACK into ACKedPackets
     for (int i = lastHighestSeqNum; i < tracker.highestACKSeqNum; i++) {
-      cout << "Moving packet with seqNum " << i << " to ACKedPackets" << endl;
       tracker.ACKedPackets[i] = tracker.unACKedPackets[i];
     }
 
