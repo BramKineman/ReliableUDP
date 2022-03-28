@@ -207,7 +207,7 @@ PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket, char* lo
   return ACKPacket;
 }
 
-bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker, char* logFile) {
+bool rUDPSend(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker, char* logFile) {
 
   bool sendLoop = true;
   int windowBegin = 0;
@@ -310,7 +310,7 @@ int main(int argc, char* argv[])
 
   packetTracker tracker = readFileIntoTracker(senderArgs.inputFile);
 
-  if (sendData(socket, senderArgs.inputFile, senderArgs.windowSize, tracker, senderArgs.log)) {
+  if (rUDPSend(socket, senderArgs.inputFile, senderArgs.windowSize, tracker, senderArgs.log)) {
     // send END, receive ACK
     PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
     // set timeout to 500 ms

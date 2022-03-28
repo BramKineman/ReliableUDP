@@ -140,6 +140,29 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
   return true;
 }
 
+packet peekAtNextPacket(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket) {
+  packet nextPacket;
+  memset(nextPacket.data,'\0', DATABUFFERSIZE);
+  recvfrom(serverSocket.sockfd, (char*)&nextPacket, sizeof(nextPacket), MSG_PEEK, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+  return nextPacket;
+}
+
+void ensureSTARTACKReceived(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &STARTPacket, PacketHeader &ACKPacketForSTARTEND, char* logFilePath) {
+  bool ensureSTARTACKReceived = false;
+  while (!ensureSTARTACKReceived) {
+    // packet to receive data in to
+    packet peekedPacket = peekAtNextPacket(serverSocket, clientSocket);
+    if (peekedPacket.type == 2) { // next packet is data packet
+      ensureSTARTACKReceived = true;
+    } 
+    else {
+      // receieve new start and send another ACK
+      receivedSTART(serverSocket, clientSocket, STARTPacket, logFilePath);
+      sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, logFilePath);
+    }
+  }
+}
+
 // packet receiveENDPacket(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &ENDPacket, char* logFilePath) {
 //   packet newPacket;
 //   recvfrom(serverSocket.sockfd, (char*)&ENDPacket, sizeof(ENDPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
@@ -152,15 +175,8 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
 //   return newPacket;
 // }
 
-packet peekAtNextPacket(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket) {
-  packet nextPacket;
-  memset(nextPacket.data,'\0', DATABUFFERSIZE);
-  recvfrom(serverSocket.sockfd, (char*)&nextPacket, sizeof(nextPacket), MSG_PEEK, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
-  return nextPacket;
-}
-
 // receive data from client
-bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker, char* logFilePath) {
+bool rUDPReceive(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker, char* logFilePath) {
   // packet to receive data in to
   packet receivedPacket;
   // clear tracker variables
@@ -247,6 +263,12 @@ bool receiveData(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket,
   return true;
 }
 
+void putBufferedPacketsIntoACKedPackets(packetTracker &tracker) {
+  for (auto it = tracker.bufferedPackets.begin(); it != tracker.bufferedPackets.end(); ++it) {
+    tracker.ACKedPackets[it->first] = it->second;
+  }
+}
+
 void writeDataToFile(char* filePath, packetTracker &tracker, int &fileNum) {
   // create string for full file path
   string fullFilePath = string(filePath) + "/File-" + to_string(fileNum) + ".out";
@@ -287,26 +309,10 @@ int main(int argc, char* argv[])
     PacketHeader ACKPacketForSTARTEND = createACKPacket(STARTPacket.seqNum);
     bool ackSent = sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, receiverArgs.log);
     if (ackSent) {
+      ensureSTARTACKReceived(serverSocket, clientSocket, STARTPacket, ACKPacketForSTARTEND, receiverArgs.log);
 
-      bool ensureSTARTACKReceived = false;
-      while (!ensureSTARTACKReceived) {
-        // packet to receive data in to
-        packet peekedPacket = peekAtNextPacket(serverSocket, clientSocket);
-        if (peekedPacket.type == 2) { // next packet is data packet
-          ensureSTARTACKReceived = true;
-        } 
-        else {
-          // receieve new start and send another ACK
-          receivedSTART(serverSocket, clientSocket, STARTPacket, receiverArgs.log);
-          sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, receiverArgs.log);
-        }
-      }
-
-      if (receiveData(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker, receiverArgs.log)) {
-        // put all buffered packets into ACKedPackets
-        for (auto it = tracker.bufferedPackets.begin(); it != tracker.bufferedPackets.end(); ++it) {
-          tracker.ACKedPackets[it->first] = it->second;
-        }
+      if (rUDPReceive(serverSocket, clientSocket, receiverArgs.outputDir, receiverArgs.windowSize, tracker, receiverArgs.log)) {
+        void putBufferedPacketsIntoACKedPackets(packetTracker tracker);
         writeDataToFile(receiverArgs.outputDir, tracker, fileNum);
       }
 
