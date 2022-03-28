@@ -21,12 +21,6 @@
 #define TOTALHEADERSIZE 44
 
 using namespace std; 
-	
-// Timeout timer - 500 ms timeout 
-struct timer {
-  chrono::time_point<chrono::system_clock> start, end;
-  chrono::duration<double> elapsed;
-};
 
 // command line arguments 
 struct args {
@@ -40,7 +34,6 @@ struct args {
 struct serverSocketInfo {
   int sockfd;
   struct sockaddr_in server_addr;
-  socklen_t server_len;
 };
 
 // client socket info for receiving data
@@ -59,22 +52,13 @@ struct packetTracker {
   map<int, packet> bufferedPackets;
 };
 
-auto retrieveArgs(char* argv[])  {
+auto retrieveArgs(char* argv[]) {
   args newArgs;
   newArgs.portNum = argv[1];
   newArgs.windowSize = argv[2];
   newArgs.outputDir = argv[3];
   newArgs.log = argv[4];
   return newArgs;
-}
-
-PacketHeader createACKPacket(int seqNum){
-  PacketHeader ACKHeader;
-  ACKHeader.type = 3;
-  ACKHeader.seqNum = seqNum; 
-  ACKHeader.length = 0; // 0 for ACKs
-  ACKHeader.checksum = 0; // zero checksum for START/END/ACK packets
-  return ACKHeader;
 }
 
 serverSocketInfo setupServerSocket(char* portnum) {
@@ -99,6 +83,15 @@ clientSocketInfo setupClientSocket() {
   clientSocketInfo newSocket;
   newSocket.client_len = sizeof(newSocket.client_addr);
   return newSocket;
+}
+
+PacketHeader createACKPacket(int seqNum){
+  PacketHeader ACKHeader;
+  ACKHeader.type = 3;
+  ACKHeader.seqNum = seqNum; 
+  ACKHeader.length = 0; // 0 for ACKs
+  ACKHeader.checksum = 0; // zero checksum for START/END/ACK packets
+  return ACKHeader;
 }
 
 void writeToLogFile(char* logFilePath, string type, string seqNum, string length, string checksum) {
@@ -142,8 +135,10 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
 
 packet peekAtNextPacket(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket) {
   packet nextPacket;
+  int errno;
   memset(nextPacket.data,'\0', DATABUFFERSIZE);
   recvfrom(serverSocket.sockfd, (char*)&nextPacket, sizeof(nextPacket), MSG_PEEK, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+  cout << "ERRNO: " << errno << endl;
   return nextPacket;
 }
 
@@ -163,17 +158,17 @@ void ensureSTARTACKReceived(serverSocketInfo &serverSocket, clientSocketInfo &cl
   }
 }
 
-// packet receiveENDPacket(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &ENDPacket, char* logFilePath) {
-//   packet newPacket;
-//   recvfrom(serverSocket.sockfd, (char*)&ENDPacket, sizeof(ENDPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
-//   if (ENDPacket.type == 1) {
-//     printf("Received END packet with SeqNum: %d\n", ENDPacket.seqNum);
-//     // write to log file
-//     writeToLogFile(logFilePath, to_string(ENDPacket.type), to_string(ENDPacket.seqNum), to_string(ENDPacket.length), to_string(ENDPacket.checksum));
-//     return newPacket;
-//   }
-//   return newPacket;
-// }
+packet receiveENDPacket(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, PacketHeader &ENDPacket, char* logFilePath) {
+  packet newPacket;
+  recvfrom(serverSocket.sockfd, (char*)&ENDPacket, sizeof(ENDPacket), 0, (struct sockaddr *) &clientSocket.client_addr, &clientSocket.client_len);
+  if (ENDPacket.type == 1) {
+    printf("Received END packet with SeqNum: %d\n", ENDPacket.seqNum);
+    // write to log file
+    writeToLogFile(logFilePath, to_string(ENDPacket.type), to_string(ENDPacket.seqNum), to_string(ENDPacket.length), to_string(ENDPacket.checksum));
+    return newPacket;
+  }
+  return newPacket;
+}
 
 // receive data from client
 bool rUDPReceive(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, char* filePath, char* windowSize, packetTracker &tracker, char* logFilePath) {
@@ -317,30 +312,7 @@ int main(int argc, char* argv[])
       }
 
       // send ACK for END
-      sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, receiverArgs.log);  
-
-      // bool ensureENDACKReceived = false;
-      // packet ENDPacket;
-      // while (!ensureENDACKReceived) {
-      //   // packet to receive data in to
-      //   cout << "GOING TO PEEK AT NEXT PACKET" << endl;
-      //   // make socket non-blocking
-      //   fcntl(serverSocket.sockfd, F_SETFL, O_NONBLOCK);
-      //   packet peekedPacket = peekAtNextPacket(serverSocket, clientSocket);
-      //   cout << "PEEKD AT NEXT PACKET and saw type: " << peekedPacket.type << endl;
-      //   if (peekedPacket.type == 1) { 
-      //     receiveENDPacket(serverSocket, clientSocket, ENDPacket, receiverArgs.log);
-      //     // resend ACK for END
-      //     sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, receiverArgs.log);
-      //   } 
-      //   else {
-      //     ensureENDACKReceived = true;
-      //   }
-      // }
-      // // make socket blocking 
-      // fcntl(serverSocket.sockfd, F_SETFL, 0);
+      sendACK(serverSocket, clientSocket, ACKPacketForSTARTEND, receiverArgs.log);
     } 
   }
-
-
 }

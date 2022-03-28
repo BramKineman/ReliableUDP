@@ -49,11 +49,10 @@ struct packetTracker {
   // <seqNum, packet>
   map<int, packet> unACKedPackets;
   map<int, packet> ACKedPackets;
-  map<int, packet> packetsInWindow;
   uint32_t highestACKSeqNum = 0;
 };
 
-auto retrieveArgs(char* argv[])  {
+auto retrieveArgs(char* argv[]) {
   args newArgs;
   newArgs.receiverIP = argv[1];
   newArgs.receiverPort = argv[2];
@@ -108,7 +107,7 @@ void setSocketTimeout(int sockfd, int timeout) {
   }
 }
 
-packetTracker readFileIntoTracker(char* inputFile) {
+packetTracker readFileInToTracker(char* inputFile) {
   packetTracker tracker;
   ifstream file(inputFile, ios::binary);
   if (!file.is_open()) {
@@ -207,7 +206,7 @@ PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket, char* lo
   return ACKPacket;
 }
 
-bool rUDPSend(socketInfo &socket, char* filePath, char* windowSize, packetTracker &tracker, char* logFile) {
+bool rUDPSend(socketInfo &socket, char* windowSize, packetTracker &tracker, char* logFile) {
 
   bool sendLoop = true;
   int windowBegin = 0;
@@ -215,7 +214,6 @@ bool rUDPSend(socketInfo &socket, char* filePath, char* windowSize, packetTracke
   int lastHighestSeqNum = 0;
 
   while(sendLoop) {
-    setSocketTimeout(socket.sockfd, 0);
     // send all packets in window
     for (int i = windowBegin; i < windowEnd; i++) {
       cout << "Trying to send data..." << endl;
@@ -244,7 +242,7 @@ bool rUDPSend(socketInfo &socket, char* filePath, char* windowSize, packetTracke
 
     // collect all ACKs
     for (int i = 0; i < atoi(windowSize); i++) {
-      setSocketTimeout(socket.sockfd, TIMEOUT);
+      // setSocketTimeout(socket.sockfd, TIMEOUT);
       PacketHeader ACKPacket;
       ACKPacket = receiveDataACK(socket, ACKPacket, logFile);
 
@@ -308,13 +306,13 @@ int main(int argc, char* argv[])
     }
   }
 
-  packetTracker tracker = readFileIntoTracker(senderArgs.inputFile);
+  packetTracker tracker = readFileInToTracker(senderArgs.inputFile);
 
-  if (rUDPSend(socket, senderArgs.inputFile, senderArgs.windowSize, tracker, senderArgs.log)) {
+  if (rUDPSend(socket, senderArgs.windowSize, tracker, senderArgs.log)) {
     // send END, receive ACK
     PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
     // set timeout to 500 ms
-    setSocketTimeout(socket.sockfd, TIMEOUT);
+    // setSocketTimeout(socket.sockfd, TIMEOUT);
     if (sendEND(socket, ENDPacket, senderArgs.log)) {
       PacketHeader ACKPacket;
       while(!getENDACK(socket, ACKPacket, senderArgs.log)) {
