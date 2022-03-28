@@ -117,7 +117,6 @@ bool sendACK(serverSocketInfo &serverSocket, clientSocketInfo &clientSocket, Pac
   {
       return false;
   }
-  // write to log file
   writeToLogFile(logFilePath, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
   return true;
 }

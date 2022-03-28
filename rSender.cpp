@@ -142,17 +142,17 @@ void writeToLogFile(char* logFilePath, string type, string seqNum, string length
   log.close();
 }
 
-bool sendSTART(socketInfo &socket, PacketHeader &startHeader, char* logFile) {
-  if (sendto(socket.sockfd, (char*)&startHeader, sizeof(startHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+bool sendSTARTEND(socketInfo &socket, PacketHeader &packet, char* logFile) {
+  if (sendto(socket.sockfd, (char*)&packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
   {
     printf("Error sending start\n");
     exit(1);
   }
-  writeToLogFile(logFile, to_string(startHeader.type), to_string(startHeader.seqNum), to_string(startHeader.length), to_string(startHeader.checksum));
+  writeToLogFile(logFile, to_string(packet.type), to_string(packet.seqNum), to_string(packet.length), to_string(packet.checksum));
   return true;
 }
 
-bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
+bool getSTARTENDACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
     if (ACKPacket.type == 3) {
     writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
@@ -162,30 +162,7 @@ bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
   return false;
 }
 
-bool sendEND(socketInfo &socket, PacketHeader &endHeader, char* logFile) {
-  if (sendto(socket.sockfd, (char*)&endHeader, sizeof(endHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-  {
-    printf("Error sending end\n");
-    exit(1);
-  }
-  // write to log file
-  writeToLogFile(logFile, to_string(endHeader.type), to_string(endHeader.seqNum), to_string(endHeader.length), to_string(endHeader.checksum));
-  return true;
-}
-
-bool getENDACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
-
-  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
-    if (ACKPacket.type == 3) {
-      return true;
-    }
-  }
-  // write to log file
-  writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
-  return false;
-}
-
-PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
+PacketHeader getDataACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
   {
     return ACKPacket;
@@ -227,7 +204,7 @@ bool rUDPSend(socketInfo &socket, char* windowSize, packetTracker &tracker, char
     for (int i = 0; i < atoi(windowSize); i++) {
       // setSocketTimeout(socket.sockfd, TIMEOUT);
       PacketHeader ACKPacket;
-      ACKPacket = receiveDataACK(socket, ACKPacket, logFile);
+      ACKPacket = getDataACK(socket, ACKPacket, logFile);
 
       // find the highest seqNum ACK
       if ((ACKPacket.seqNum > tracker.highestACKSeqNum) && (ACKPacket.type == 3)) {
@@ -267,10 +244,10 @@ int main(int argc, char* argv[])
 
   // send START, receive ACK
   PacketHeader STARTPacket = createSTARTPacket(); 
-  if (sendSTART(socket, STARTPacket, senderArgs.log)) {
+  if (sendSTARTEND(socket, STARTPacket, senderArgs.log)) {
     PacketHeader ACKPacket;
-    while(!getSTARTACK(socket, ACKPacket, senderArgs.log)) {
-      sendSTART(socket, STARTPacket, senderArgs.log);
+    while(!getSTARTENDACK(socket, ACKPacket, senderArgs.log)) {
+      sendSTARTEND(socket, STARTPacket, senderArgs.log);
     }
   }
 
@@ -281,10 +258,10 @@ int main(int argc, char* argv[])
     PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
     // set timeout to 500 ms
     // setSocketTimeout(socket.sockfd, TIMEOUT);
-    if (sendEND(socket, ENDPacket, senderArgs.log)) {
+    if (sendSTARTEND(socket, ENDPacket, senderArgs.log)) {
       PacketHeader ACKPacket;
-      while(!getENDACK(socket, ACKPacket, senderArgs.log)) {
-        sendEND(socket, ENDPacket, senderArgs.log);
+      while(!getSTARTENDACK(socket, ACKPacket, senderArgs.log)) {
+        sendSTARTEND(socket, ENDPacket, senderArgs.log);
       }
     }
   }
