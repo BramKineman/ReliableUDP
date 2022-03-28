@@ -1,32 +1,31 @@
 #include <stdio.h>
 #include <string.h>
+#include <string>
 #include <stdlib.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <chrono>
 #include <ctime>
 #include <iostream>
 #include <cstring>
 #include <time.h>
-#include <deque>
+#include <map>
+#include <fstream>
 
 #include "PacketHeader.h"
 #include "crc32.h"
 
-#define DATABUFFERSIZE 1465
+#define DATABUFFERSIZE 1456
 #define PACKETBUFFERSIZE 1472
+#define HEADERSIZE 16
+#define TOTALHEADERSIZE 44
+#define TIMEOUT 500000
 
 using namespace std; 
-	
-// Timeout timer
-// 500 ms timeout 
-struct timer {
-  chrono::time_point<chrono::system_clock> start, end;
-  chrono::duration<double> elapsed;
-};
 
 struct args {
   char* receiverIP;
@@ -47,12 +46,13 @@ struct packet : public PacketHeader {
 };
 
 struct packetTracker {
-  deque<packet> unACKedPackets;
-  deque<packet> ACKedPackets;
-  deque<packet> packetsInWindow;
+  // <seqNum, packet>
+  map<int, packet> unACKedPackets;
+  map<int, packet> ACKedPackets;
+  uint32_t highestACKSeqNum = 0;
 };
 
-auto retrieveArgs(char* argv[])  {
+auto retrieveArgs(char* argv[]) {
   args newArgs;
   newArgs.receiverIP = argv[1];
   newArgs.receiverPort = argv[2];
@@ -72,9 +72,13 @@ PacketHeader createSTARTPacket(){
   return startHeader;
 }
 
-PacketHeader createHeader() {
-  PacketHeader header;
-  return header;
+PacketHeader createENDPacket(unsigned int seqNum){
+  PacketHeader endHeader;
+  endHeader.type = 1;
+  endHeader.seqNum = seqNum; // Same as START seqNum
+  endHeader.length = 0; // 0 for ACKS, START, END
+  endHeader.checksum = 0; // 0 for ACKS, START, END
+  return endHeader;
 }
 
 socketInfo setupSocket(char* portNum, char* host) {
@@ -93,141 +97,173 @@ socketInfo setupSocket(char* portNum, char* host) {
   return newSocket;
 }
 
-bool sendSTART(socketInfo &socket, PacketHeader &startHeader) {
-  if (sendto(socket.sockfd, (char*)&startHeader, sizeof(startHeader), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+void setSocketTimeout(int sockfd, int timeout) {
+  struct timeval tv;
+  tv.tv_sec = 0;
+  tv.tv_usec = timeout;
+  if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv)) < 0) {
+    perror("Error setting timeout");
+    exit(1);
+  }
+}
+
+packetTracker readFileInToTracker(char* inputFile) {
+  packetTracker tracker;
+  ifstream file(inputFile, ios::binary);
+  if (!file.is_open()) {
+    exit(1);
+  }
+  int seqNum = 0;
+  while (!file.eof()) {
+    packet newPacket;
+    memset(newPacket.data,'\0', DATABUFFERSIZE);
+    file.read(newPacket.data, DATABUFFERSIZE);
+    streamsize bytesRead = file.gcount();
+    newPacket.type = 2;
+    newPacket.seqNum = seqNum;
+    newPacket.length = bytesRead;
+    newPacket.checksum = crc32(newPacket.data, bytesRead);
+    tracker.unACKedPackets[seqNum] = newPacket;
+    seqNum++;
+  }
+  file.close();
+  return tracker;
+}
+
+void writeToLogFile(char* logFilePath, string type, string seqNum, string length, string checksum) {
+  string logMessage = type + " " + seqNum + " " + length + " " + checksum + "\n";
+  string fullFilePath = string(logFilePath);
+  ofstream log(fullFilePath, ios_base::app);
+  if (!log.is_open()) {
+    exit(1);
+  }
+  // stream to output file
+  log << logMessage;
+  log.close();
+}
+
+bool sendSTARTEND(socketInfo &socket, PacketHeader &packet, char* logFile) {
+  if (sendto(socket.sockfd, (char*)&packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
   {
     printf("Error sending start\n");
     exit(1);
   }
-  cout << "SENT START" << endl;
+  writeToLogFile(logFile, to_string(packet.type), to_string(packet.seqNum), to_string(packet.length), to_string(packet.checksum));
   return true;
 }
 
-bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket) {
+bool getSTARTENDACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
+  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
+    if (ACKPacket.type == 3) {
+    writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
+    return true;
+    }
+  }
+  return false;
+}
+
+PacketHeader getDataACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
   {
-    printf("Error receiving ACK for START\n");
-    exit(1);
+    return ACKPacket;
+  } else {
+    writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
   }
-  printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-  return true;
+  return ACKPacket;
 }
 
-bool receiveDataACK(socketInfo &socket, PacketHeader ACKPacket) {
-  if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
-  {
-    printf("Error receiving ACK for DATA\n");
-    exit(1);
-  }
-  printf("Received ACK for DATA packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-  return true;
-}
+bool rUDPSend(socketInfo &socket, char* windowSize, packetTracker &tracker, char* logFile) {
 
-void serialize(packet* packet, char *data)
-{
-    int *q = (int*)data;    
-    *q = packet->type;       q++;    
-    *q = packet->seqNum;   q++;    
-    *q = packet->length;     q++;
-    *q = packet->checksum;     q++;
+  bool sendLoop = true;
+  int windowBegin = 0;
+  int windowEnd = atoi(windowSize);
+  int lastHighestSeqNum = 0;
 
-    char *p = (char*)q;
-    int i = 0;
-    while (i < PACKETBUFFERSIZE)
-    {
-        *p = packet->data[i];
-        p++;
-        i++;
+  while(sendLoop) {
+    // send all packets in window
+    for (int i = windowBegin; i < windowEnd; i++) {
+      // Guard for window size larger than number of packets to send
+      if (tracker.unACKedPackets.find(i) == tracker.unACKedPackets.end()) {
+        sendLoop = false;
+        break;
+      }
+
+      // send packet
+      if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
+        {
+          printf("Error sending data\n");
+          exit(1);
+        }
+      // write to log
+      writeToLogFile(logFile, to_string(tracker.unACKedPackets[i].type), to_string(tracker.unACKedPackets[i].seqNum), to_string(tracker.unACKedPackets[i].length), to_string(tracker.unACKedPackets[i].checksum));
     }
-}
 
-void sendData(socketInfo &socket, char* filePath, char* windowSize) {
+    lastHighestSeqNum = tracker.highestACKSeqNum;
 
-  // create packet
-  packet* dataPacket = new packet;
-  // create packet tracker
-  packetTracker* tracker = new packetTracker;
+    // collect all ACKs
+    for (int i = 0; i < atoi(windowSize); i++) {
+      // setSocketTimeout(socket.sockfd, TIMEOUT);
+      PacketHeader ACKPacket;
+      ACKPacket = getDataACK(socket, ACKPacket, logFile);
 
-  // GET DATA FROM FILE TO SEND
-  FILE* file = fopen(filePath, "r");
-  //read file into buffer
-  int bytesRead;
-  // fread(void * buffer, size_t size of each element, size_t num elements to read, FILE* fp)
-  // TODO: read up to a point, then next read starts from that point AND second param won't always be 1
-  while(!feof(file)) {
-    bytesRead = fread(dataPacket->data, 1, DATABUFFERSIZE, file);
-    // GET CHECKSUM
-    uint32_t checkSum = crc32(dataPacket->data, bytesRead);
-    // CREATE PACKET HEADER
-    dataPacket->type = 2;
-    dataPacket->seqNum = 0; // initial
-    dataPacket->length = bytesRead;
-    dataPacket->checksum = checkSum;
-    // serialize packet
-    char packet[PACKETBUFFERSIZE];
-    serialize(dataPacket, packet);
-
-    // start timer when sending packet
-    // timer timeout;
-    // timeout.start = chrono::system_clock::now();
-    
-    // add packet to unacked tracker
-    tracker->unACKedPackets.push_back(*dataPacket);
-
-    // send packet
-    if (sendto(socket.sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
-    {
-      printf("Error sending data\n");
-      exit(1);
+      // find the highest seqNum ACK
+      if ((ACKPacket.seqNum > tracker.highestACKSeqNum) && (ACKPacket.type == 3)) {
+        tracker.highestACKSeqNum = ACKPacket.seqNum;
+        // check if all packets have been ACKed
+        if ((tracker.highestACKSeqNum) == (tracker.unACKedPackets.size())) {
+          sendLoop = false;
+          break;
+        }
+      }
     }
-    cout << "SENT DATA" << endl;
+
+    // put ACKed packets up to highest seqNum ACK into ACKedPackets
+    for (uint32_t i = lastHighestSeqNum; i < tracker.highestACKSeqNum; i++) {
+      tracker.ACKedPackets[i] = tracker.unACKedPackets[i];
+    }
+
+    // move window to lowest unACKED packet
+    windowEnd = tracker.highestACKSeqNum + atoi(windowSize);
+    windowBegin = tracker.highestACKSeqNum;
   } 
 
-  // close file
-  cout << "Closing file..." << endl;
-  fclose(file);
-
-  // close connection
-  cout << "Closing connection..." << endl;
-  close(socket.sockfd);
+  return true;
 }
 
 int main(int argc, char* argv[]) 
 {	
   // SENDER
-  // ./rSender <receive-IP> <receiver-port> <window-size> <input-file> <log>
-  cout << "Hello from sender" << endl;
- 
+  // ./rSender <receive-IP> <receiver-port> <window-size> <input-file> <log> 
   // retrieve inputted args
   args senderArgs = retrieveArgs(argv);
-  cout << "receiverIP: " << senderArgs.receiverIP << endl;
-  cout << "receiverPort: " << senderArgs.receiverPort << endl;
-  cout << "windowSize: " << senderArgs.windowSize << endl;
-  cout << "inputFile: " << senderArgs.inputFile << endl;
-  cout << "log: " << senderArgs.log << endl;
 
   // setup socket
   socketInfo socket = setupSocket(senderArgs.receiverPort, senderArgs.receiverIP);
+  // set timeout to 500 ms
+  setSocketTimeout(socket.sockfd, TIMEOUT);
+
   // send START, receive ACK
-  PacketHeader STARTPacket = createSTARTPacket();
-  if (sendSTART(socket, STARTPacket)) {
+  PacketHeader STARTPacket = createSTARTPacket(); 
+  if (sendSTARTEND(socket, STARTPacket, senderArgs.log)) {
     PacketHeader ACKPacket;
-    getSTARTACK(socket, ACKPacket);
+    while(!getSTARTENDACK(socket, ACKPacket, senderArgs.log)) {
+      sendSTARTEND(socket, STARTPacket, senderArgs.log);
+    }
   }
 
-  sendData(socket, senderArgs.inputFile, senderArgs.windowSize);
+  packetTracker tracker = readFileInToTracker(senderArgs.inputFile);
 
-  // read input file, reading X amount of bytes (1472 for header and data)
-	
-  // append checksum to data (32-bit CRC header provided for checksums)
-
-  // track sequence number, increment by 1 when sending
-
-  // set sliding window (size is inputted arg)
-  // window is the number of unACKED packets the sender can have in the network
-
-  // recieve cumalitive ACKs from receiver 
-
-  cout << "Ending program..." << endl;
+  if (rUDPSend(socket, senderArgs.windowSize, tracker, senderArgs.log)) {
+    // send END, receive ACK
+    PacketHeader ENDPacket = createENDPacket(STARTPacket.seqNum);
+    // set timeout to 500 ms
+    // setSocketTimeout(socket.sockfd, TIMEOUT);
+    if (sendSTARTEND(socket, ENDPacket, senderArgs.log)) {
+      PacketHeader ACKPacket;
+      while(!getSTARTENDACK(socket, ACKPacket, senderArgs.log)) {
+        sendSTARTEND(socket, ENDPacket, senderArgs.log);
+      }
+    }
+  }
   return 0;
 }
