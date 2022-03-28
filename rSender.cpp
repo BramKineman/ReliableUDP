@@ -111,7 +111,6 @@ packetTracker readFileInToTracker(char* inputFile) {
   packetTracker tracker;
   ifstream file(inputFile, ios::binary);
   if (!file.is_open()) {
-    cout << "Error opening file" << endl;
     exit(1);
   }
   int seqNum = 0;
@@ -136,7 +135,6 @@ void writeToLogFile(char* logFilePath, string type, string seqNum, string length
   string fullFilePath = string(logFilePath);
   ofstream log(fullFilePath, ios_base::app);
   if (!log.is_open()) {
-    cout << "Error opening log file" << endl;
     exit(1);
   }
   // stream to output file
@@ -151,15 +149,12 @@ bool sendSTART(socketInfo &socket, PacketHeader &startHeader, char* logFile) {
     exit(1);
   }
   writeToLogFile(logFile, to_string(startHeader.type), to_string(startHeader.seqNum), to_string(startHeader.length), to_string(startHeader.checksum));
-  cout << "Sent START..." << endl;
   return true;
 }
 
 bool getSTARTACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
     if (ACKPacket.type == 3) {
-    printf("Received ACK for START packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-    // write to log file
     writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
     return true;
     }
@@ -175,7 +170,6 @@ bool sendEND(socketInfo &socket, PacketHeader &endHeader, char* logFile) {
   }
   // write to log file
   writeToLogFile(logFile, to_string(endHeader.type), to_string(endHeader.seqNum), to_string(endHeader.length), to_string(endHeader.checksum));
-  cout << "Sent END..." << endl;
   return true;
 }
 
@@ -183,24 +177,19 @@ bool getENDACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
 
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len)) {
     if (ACKPacket.type == 3) {
-    printf("Received ACK for END packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-    return true;
+      return true;
     }
   }
   // write to log file
   writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
-  
   return false;
 }
 
 PacketHeader receiveDataACK(socketInfo &socket, PacketHeader ACKPacket, char* logFile) {
   if (recvfrom(socket.sockfd, (char*)&ACKPacket, sizeof(ACKPacket), 0, (struct sockaddr *) &socket.server_addr, &socket.server_len) == -1)
   {
-    printf("No ACK to receive\n");
-
+    return ACKPacket;
   } else {
-    printf("Received ACK for packet from %s:%d with SeqNum: %d\n", inet_ntoa(socket.server_addr.sin_addr), ntohs(socket.server_addr.sin_port), ACKPacket.seqNum);
-    // write to log file
     writeToLogFile(logFile, to_string(ACKPacket.type), to_string(ACKPacket.seqNum), to_string(ACKPacket.length), to_string(ACKPacket.checksum));
   }
   return ACKPacket;
@@ -216,17 +205,11 @@ bool rUDPSend(socketInfo &socket, char* windowSize, packetTracker &tracker, char
   while(sendLoop) {
     // send all packets in window
     for (int i = windowBegin; i < windowEnd; i++) {
-      cout << "Trying to send data..." << endl;
       // Guard for window size larger than number of packets to send
       if (tracker.unACKedPackets.find(i) == tracker.unACKedPackets.end()) {
-        cout << "Window size larger than number of packets to send..." << endl;
         sendLoop = false;
         break;
       }
-
-      cout << "NUMBER OF PACKETS TO SEND: " << tracker.unACKedPackets.size() << endl;
-      cout << endl << "Sending DATA: " << endl << tracker.unACKedPackets[i].data << endl << endl;
-      cout << "With SeqNum: " << tracker.unACKedPackets[i].seqNum << endl;
 
       // send packet
       if (sendto(socket.sockfd, (char*)&tracker.unACKedPackets[i], tracker.unACKedPackets[i].length + HEADERSIZE, 0, (struct sockaddr *) &socket.server_addr, socket.server_len) == -1) 
@@ -251,14 +234,11 @@ bool rUDPSend(socketInfo &socket, char* windowSize, packetTracker &tracker, char
         tracker.highestACKSeqNum = ACKPacket.seqNum;
         // check if all packets have been ACKed
         if ((tracker.highestACKSeqNum) == (tracker.unACKedPackets.size())) {
-          cout << "All packets ACKed!" << endl;
           sendLoop = false;
           break;
         }
       }
     }
-
-    cout << "Highest ACK SeqNum: " << tracker.highestACKSeqNum << endl;
 
     // put ACKed packets up to highest seqNum ACK into ACKedPackets
     for (uint32_t i = lastHighestSeqNum; i < tracker.highestACKSeqNum; i++) {
@@ -266,13 +246,8 @@ bool rUDPSend(socketInfo &socket, char* windowSize, packetTracker &tracker, char
     }
 
     // move window to lowest unACKED packet
-    cout << "Updating window to: " << tracker.highestACKSeqNum << endl;
     windowEnd = tracker.highestACKSeqNum + atoi(windowSize);
     windowBegin = tracker.highestACKSeqNum;
-    
-    cout << "NEW WINDOW RANGE: " << windowBegin << "-" << windowEnd << endl;
-
-    cout << "********************************************************" << endl;
   } 
 
   return true;
@@ -281,16 +256,9 @@ bool rUDPSend(socketInfo &socket, char* windowSize, packetTracker &tracker, char
 int main(int argc, char* argv[]) 
 {	
   // SENDER
-  // ./rSender <receive-IP> <receiver-port> <window-size> <input-file> <log>
-  cout << "Hello from sender" << endl;
- 
+  // ./rSender <receive-IP> <receiver-port> <window-size> <input-file> <log> 
   // retrieve inputted args
   args senderArgs = retrieveArgs(argv);
-  cout << "receiverIP: " << senderArgs.receiverIP << endl;
-  cout << "receiverPort: " << senderArgs.receiverPort << endl;
-  cout << "windowSize: " << senderArgs.windowSize << endl;
-  cout << "inputFile: " << senderArgs.inputFile << endl;
-  cout << "log: " << senderArgs.log << endl;
 
   // setup socket
   socketInfo socket = setupSocket(senderArgs.receiverPort, senderArgs.receiverIP);
@@ -316,12 +284,9 @@ int main(int argc, char* argv[])
     if (sendEND(socket, ENDPacket, senderArgs.log)) {
       PacketHeader ACKPacket;
       while(!getENDACK(socket, ACKPacket, senderArgs.log)) {
-        cout << "Retrying..." << endl;
         sendEND(socket, ENDPacket, senderArgs.log);
       }
     }
   }
-
-  cout << "Ending program..." << endl;
   return 0;
 }
