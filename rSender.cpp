@@ -50,7 +50,7 @@ struct packetTracker {
   map<int, packet> unACKedPackets;
   map<int, packet> ACKedPackets;
   map<int, packet> packetsInWindow;
-  int highestACKSeqNum = 0;
+  uint32_t highestACKSeqNum = 0;
 };
 
 auto retrieveArgs(char* argv[])  {
@@ -80,11 +80,6 @@ PacketHeader createENDPacket(unsigned int seqNum){
   endHeader.length = 0; // 0 for ACKS, START, END
   endHeader.checksum = 0; // 0 for ACKS, START, END
   return endHeader;
-}
-
-PacketHeader createHeader() {
-  PacketHeader header;
-  return header;
 }
 
 socketInfo setupSocket(char* portNum, char* host) {
@@ -268,7 +263,7 @@ bool sendData(socketInfo &socket, char* filePath, char* windowSize, packetTracke
     cout << "Highest ACK SeqNum: " << tracker.highestACKSeqNum << endl;
 
     // put ACKed packets up to highest seqNum ACK into ACKedPackets
-    for (int i = lastHighestSeqNum; i < tracker.highestACKSeqNum; i++) {
+    for (uint32_t i = lastHighestSeqNum; i < tracker.highestACKSeqNum; i++) {
       tracker.ACKedPackets[i] = tracker.unACKedPackets[i];
     }
 
